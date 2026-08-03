@@ -24,7 +24,6 @@ function setLocation(search: string) {
 
 function renderCallback(setUser = vi.fn()) {
   return render(
-    // @ts-expect-error -- test double; exact AuthUser shape is an implementation detail
     <AuthContext.Provider value={{ user: null, loading: false, logout: vi.fn(), setUser }}>
       <AuthCallbackPage />
     </AuthContext.Provider>,

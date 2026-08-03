@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { db } from './db/index.js'
 import { usersRouter } from './features/users/router.js'
+import { notesRouter } from './features/notes/router.js'
 import { requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
 
@@ -39,6 +40,7 @@ app.get('/health', (c) => c.json({ status: 'ok', service: 'Zettel' }))
 app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocument))
 
 app.route('/users', usersRouter)
+app.route('/notes', notesRouter)
 
 const PORT = Number(process.env['PORT'] ?? 3003)
 serve({ fetch: app.fetch, port: PORT }, () => {

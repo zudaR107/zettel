@@ -2,6 +2,7 @@ import { createRouter, createRootRouteWithContext, createRoute, Outlet, redirect
 import type { QueryClient } from '@tanstack/react-query'
 import { Layout } from '../components/Layout'
 import { NotesPage } from '../features/notes/NotesPage'
+import { NoteEditorPage } from '../features/notes/NoteEditorPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { DocsPage } from '../features/docs/DocsPage'
 import { HelpPage } from '../features/help/HelpPage'
@@ -47,6 +48,12 @@ const notesRoute = createRoute({
   component: NotesPage,
 })
 
+const noteEditorRoute = createRoute({
+  getParentRoute: () => protectedLayout,
+  path: '/notes/$id',
+  component: NoteEditorPage,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => protectedLayout,
   path: '/settings',
@@ -73,6 +80,7 @@ const routeTree = rootRoute.addChildren([
   protectedLayout.addChildren([
     indexRoute,
     notesRoute,
+    noteEditorRoute,
     settingsRoute,
     docsRoute,
     helpRoute,
