@@ -16,3 +16,17 @@ export const users = sqliteTable('users', {
 })
 
 export type User = typeof users.$inferSelect
+
+// ── Notes ────────────────────────────────────────────────────────
+export const notes = sqliteTable('notes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull().default(''),
+  content: text('content').notNull().default(''),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export type Note = typeof notes.$inferSelect

@@ -8,6 +8,13 @@
       "when": 1785759201117,
       "tag": "0000_far_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785762512697,
+      "tag": "0001_amazing_silver_sable",
+      "breakpoints": true
     }
   ]
 }
