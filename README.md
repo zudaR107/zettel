@@ -16,9 +16,8 @@ self-hosted personal services:
 - [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS kit
 
 Zettel ("slip"/"note card" in German — a nod to the *Zettelkasten* method)
-is a fast personal note-taking service: markdown notes with a live preview,
-`[[wiki-links]]` between them with a backlinks panel, tags, and a `Ctrl+K`
-quick switcher.
+is a fast personal note-taking service: markdown notes with a live
+preview and `[[wiki-links]]` between them, backed by a backlinks panel.
 
 ## How it fits into the platform
 
@@ -35,11 +34,19 @@ This repo is a pnpm workspace with two packages:
 - `api/` — the Hono + Drizzle/SQLite backend
 - `web/` — the React frontend
 
+## Features
+
+- **Notes** — a title and markdown content, pin/archive, full-text search.
+- **Live preview** — edit/preview/split view, with GitHub-flavored markdown
+  and syntax-highlighted code fences.
+- **`[[Wiki-links]]`** — `[[Note Title]]` in a note's content resolves to a
+  clickable link to the matching note; a backlinks panel on each note lists
+  every other note that links to it.
+
 ## Status
 
-Early-stage — the platform scaffold (auth, CI, Docker, base web shell) is
-in place; the note-taking features themselves are being built out
-milestone by milestone. This section will grow as they land.
+Notes, live preview, and wiki-links/backlinks are done. Not built yet:
+tags, and a `Ctrl+K` quick switcher.
 
 ## Local development
 
