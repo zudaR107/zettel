@@ -34,9 +34,9 @@ app.use('*', createCorsMiddleware({ allowedOrigins: ALLOWED_ORIGINS }))
 
 app.get('/health', (c) => c.json({ status: 'ok', service: 'Zettel' }))
 
-// Reached from zettel/web's own /docs page as /api/openapi.json (the web
-// container's Caddyfile already proxies /api/* here with the prefix
-// stripped) - no new reverse-proxy rule needed.
+// Reached from zettel/frontend's own /docs page as /backend/openapi.json
+// (the frontend container's Caddyfile already proxies /backend/* here
+// with the prefix stripped) - no new reverse-proxy rule needed.
 app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocument))
 
 app.route('/users', usersRouter)

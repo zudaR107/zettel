@@ -22,7 +22,7 @@ preview and `[[wiki-links]]` between them, backed by a backlinks panel.
 ## How it fits into the platform
 
 Zettel has no login form of its own. An unauthenticated visitor is redirected to
-Schlüssel's hosted login page and back; the API verifies the resulting token itself
+Schlüssel's hosted login page and back; the backend verifies the resulting token itself
 against Schlüssel's public key (JWKS) rather than calling back to Schlüssel on every
 request. Shared logic (JWKS verification, CORS, PKCE login redirect, the API client,
 and the resizable sidebar) comes from
@@ -31,8 +31,8 @@ and the resizable sidebar) comes from
 
 This repo is a pnpm workspace with two packages:
 
-- `api/` — the Hono + Drizzle/SQLite backend
-- `web/` — the React frontend
+- `backend/` — the Hono + Drizzle/SQLite backend
+- `frontend/` — the React frontend
 
 ## Features
 
@@ -56,15 +56,15 @@ pnpm install
 pnpm --filter @zudar107/schloss-server-kit build
 pnpm --filter @zudar107/schloss-ui build
 cp .env.example .env
-pnpm dev:api   # API on http://localhost:3003
-pnpm dev:web   # web on http://localhost:5176
+pnpm dev:backend   # backend on http://localhost:3003
+pnpm dev:frontend  # frontend on http://localhost:5176
 ```
 
 ```sh
-pnpm --filter api test
-pnpm --filter api lint
-pnpm --filter web test
-pnpm --filter web lint
+pnpm --filter backend test
+pnpm --filter backend lint
+pnpm --filter frontend test
+pnpm --filter frontend lint
 ```
 
 ### Environment variables
@@ -73,12 +73,12 @@ See `.env.example`. The important ones:
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_PATH` | SQLite file path (API) |
-| `SCHLUSSEL_JWKS_URL` | Where the API fetches Schlüssel's public key to verify tokens |
+| `DATABASE_PATH` | SQLite file path (backend) |
+| `SCHLUSSEL_JWKS_URL` | Where the backend fetches Schlüssel's public key to verify tokens |
 | `JWT_ISSUER` | Must match Schlüssel's own issuer, or every token gets rejected |
-| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist (API) |
-| `VITE_SCHLUSSEL_URL` | Where "sign in" redirects to (baked in at web build time) |
-| `VITE_SCHLOSS_URL` | Where the header's "На главную" link points to (baked in at web build time) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist (backend) |
+| `VITE_SCHLUSSEL_URL` | Where "sign in" redirects to (baked in at frontend build time) |
+| `VITE_SCHLOSS_URL` | Where the header's "На главную" link points to (baked in at frontend build time) |
 
 ## Running with Docker
 
