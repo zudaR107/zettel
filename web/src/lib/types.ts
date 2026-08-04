@@ -7,3 +7,8 @@ export interface Note {
   createdAt: string
   updatedAt: string
 }
+
+export interface NoteBacklink {
+  id: string
+  title: string
+}

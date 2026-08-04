@@ -346,6 +346,116 @@ describe('DELETE /notes/:id', () => {
   })
 })
 
+describe('GET /notes/:id/backlinks', () => {
+  it('returns 404 for a nonexistent note id', async () => {
+    const res = await get('/notes/totally-fake-id/backlinks', H1)
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 404 for a note that exists but belongs to a different user (no existence leak)", async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const resOther = await get(`/notes/${note.id}/backlinks`, H2)
+    const resMissing = await get('/notes/totally-fake-id/backlinks', H2)
+
+    expect(resOther.status).toBe(404)
+    expect(resMissing.status).toBe(404)
+    expect(await resOther.json()).toEqual(await resMissing.json())
+  })
+
+  it('returns [] immediately when the target note has an empty title, without scanning other notes', async () => {
+    const target = insertNote({ userId: 'user-1', title: '' })
+    // Content that would otherwise be an ambiguous/degenerate "match" for an
+    // empty title (literal "[[]]") - must still not come back, since an
+    // empty title short-circuits before any scan happens.
+    insertNote({ userId: 'user-1', title: 'Linker', content: 'See [[]] for details' })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+
+  it('returns other same-user, non-archived notes whose content links to the target via [[Title]]', async () => {
+    const target = insertNote({ userId: 'user-1', title: 'Recipes' })
+    const linker = insertNote({
+      userId: 'user-1',
+      title: 'Dinner Plan',
+      content: 'Check out [[Recipes]] for ideas',
+    })
+    insertNote({ userId: 'user-1', title: 'Unrelated', content: 'nothing to see here' })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { id: string; title: string }[]
+    expect(body).toEqual([{ id: linker.id, title: 'Dinner Plan' }])
+  })
+
+  it('excludes the target note itself even if its own content self-references [[own title]]', async () => {
+    const target = insertNote({
+      userId: 'user-1',
+      title: 'MyNote',
+      content: 'This note is called [[MyNote]]',
+    })
+    const linker = insertNote({
+      userId: 'user-1',
+      title: 'Other',
+      content: 'Refers back to [[MyNote]]',
+    })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { id: string; title: string }[]
+    expect(body.map((n) => n.id)).toEqual([linker.id])
+  })
+
+  it('excludes a note belonging to a different user even with matching link content', async () => {
+    const target = insertNote({ userId: 'user-1', title: 'Recipes' })
+    insertNote({ userId: 'user-2', title: 'Someone else', content: 'See [[Recipes]] here' })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+
+  it('excludes an archived same-user note even with matching link content', async () => {
+    const target = insertNote({ userId: 'user-1', title: 'Recipes' })
+    insertNote({
+      userId: 'user-1',
+      title: 'Old linker',
+      content: 'See [[Recipes]] here',
+      archived: true,
+    })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+
+  it('matches case-insensitively', async () => {
+    const target = insertNote({ userId: 'user-1', title: 'Recipes' })
+    const lower = insertNote({ userId: 'user-1', title: 'Lower link', content: 'see [[recipes]]' })
+    const upper = insertNote({ userId: 'user-1', title: 'Upper link', content: 'see [[RECIPES]]' })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { id: string; title: string }[]
+    const ids = body.map((n) => n.id).sort()
+    expect(ids).toEqual([lower.id, upper.id].sort())
+  })
+
+  it('does not match unrelated bracketed text that does not correspond to the target title', async () => {
+    const target = insertNote({ userId: 'user-1', title: 'Recipes' })
+    insertNote({
+      userId: 'user-1',
+      title: 'Unrelated linker',
+      content: 'See [[Some Other Title]] instead',
+    })
+
+    const res = await get(`/notes/${target.id}/backlinks`, H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+})
+
 describe('authentication', () => {
   const targetId = 'note-does-not-exist'
   const jsonHeaders = { 'Content-Type': 'application/json' }
@@ -360,6 +470,7 @@ describe('authentication', () => {
       { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ pinned: true }) },
     ],
     ['DELETE', `/notes/${targetId}`, { method: 'DELETE' }],
+    ['GET', `/notes/${targetId}/backlinks`, {}],
   ]
 
   it.each(cases)('returns 401 for %s %s with no Authorization header', async (_method, path, init) => {
