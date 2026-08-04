@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { eq, and, or, like, desc } from 'drizzle-orm'
+import { eq, and, or, ne, like, desc } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../../db/index.js'
 import { notes } from '../../db/schema.js'
@@ -61,6 +61,28 @@ router.get('/:id', async (c) => {
   const note = await db.select().from(notes).where(and(eq(notes.id, id), eq(notes.userId, user.id))).get()
   if (!note) return c.json({ error: 'Not found' }, 404)
   return c.json(note)
+})
+
+// Other notes that currently link to this one via `[[This Note's Title]]`
+// in their content. Computed live via a LIKE scan against the title,
+// rather than a maintained links table - fine at personal-note-taking
+// scale and avoids keeping a derived index in sync on every save.
+router.get('/:id/backlinks', async (c) => {
+  const user = c.get('user')
+  const { id } = c.req.param()
+  const note = await db.select().from(notes).where(and(eq(notes.id, id), eq(notes.userId, user.id))).get()
+  if (!note) return c.json({ error: 'Not found' }, 404)
+  // An empty title would otherwise LIKE-match every note containing a
+  // literal "[[]]", which is never a meaningful backlink.
+  if (!note.title) return c.json([])
+
+  const rows = await db.select({ id: notes.id, title: notes.title }).from(notes).where(and(
+    eq(notes.userId, user.id),
+    eq(notes.archived, false),
+    ne(notes.id, id),
+    like(notes.content, `%[[${note.title}]]%`),
+  ))
+  return c.json(rows)
 })
 
 router.put('/:id', zValidator('json', noteUpdateSchema), async (c) => {

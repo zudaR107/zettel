@@ -44,6 +44,12 @@ registry.registerPath({
 })
 
 registry.registerPath({
+  method: 'get', path: '/notes/{id}/backlinks', tags: ['notes'], summary: 'List notes that link to this note',
+  security: BEARER, request: { params: z.object({ id: z.string() }) },
+  responses: { 200: { description: 'OK' } },
+})
+
+registry.registerPath({
   method: 'put', path: '/notes/{id}', tags: ['notes'], summary: 'Update a note',
   security: BEARER,
   request: {
