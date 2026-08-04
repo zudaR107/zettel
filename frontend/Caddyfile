@@ -8,11 +8,12 @@
 		file_server
 	}
 
-	# handle_path strips the matched /api prefix before proxying, same as
-	# nginx's proxy_pass http://zettel-api:3003/ (trailing slash rewrite) -
-	# zettel-api's own routes are mounted at root, not under /api.
-	handle_path /api/* {
-		reverse_proxy zettel-api:3003
+	# handle_path strips the matched /backend prefix before proxying, same
+	# as nginx's proxy_pass http://zettel-backend:3003/ (trailing slash
+	# rewrite) - zettel-backend's own routes are mounted at root, not
+	# under /backend.
+	handle_path /backend/* {
+		reverse_proxy zettel-backend:3003
 	}
 
 	handle /auth/* {
