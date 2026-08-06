@@ -137,3 +137,19 @@
   .markdown-preview hr { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
   .markdown-preview img { max-width: 100%; border-radius: var(--radius-sm); }
 }
+
+/* HeroIllustration's second line plays a brief "write-in" flourish on
+ * mount - grows from nothing to its full width, anchored at its own left
+ * edge, like the line is being written. Ends in the visible/written
+ * state rather than reverting, since that's the illustration's correct
+ * resting appearance. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes note-line-write {
+    0%   { transform: scaleX(0); }
+    100% { transform: scaleX(1); }
+  }
+  .note-line-write {
+    transform-origin: 30px 75.5px;
+    animation: note-line-write 500ms ease-out;
+  }
+}
