@@ -74,11 +74,23 @@ export function NotesPage() {
             <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               className="input"
-              style={{ paddingLeft: '2rem' }}
+              style={{ paddingLeft: '2rem', paddingRight: '3rem' }}
               placeholder="Поиск заметок…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            {/* Hints at the Ctrl+K quick switcher (see QuickSwitcher.tsx,
+                mounted globally in Layout) - this field itself only
+                filters this page's list, the shortcut jumps straight to
+                a note from anywhere. */}
+            <span style={{
+              position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
+              fontSize: '0.6875rem', fontWeight: 600, color: 'var(--text-muted)',
+              background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 4,
+              padding: '0.0625rem 0.3rem', pointerEvents: 'none',
+            }}>
+              Ctrl K
+            </span>
           </div>
 
           {notes.length === 0 ? (
