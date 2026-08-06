@@ -17,16 +17,34 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
 
 const BEARER = [{ bearerAuth: [] }]
 
+// Mirrors notes/router.ts's noteUpdateSchema (not literally noteSchema.partial() -
+// see that file for why: .default() on noteSchema's fields would otherwise make a
+// partial PUT silently reset absent fields). Kept here rather than imported so this
+// file's only coupling to the real schema stays the same shape as its noteSchema import.
+const noteUpdateSchema = z.object({
+  title: z.string().max(200).optional(),
+  content: z.string().optional(),
+  pinned: z.boolean().optional(),
+  tags: z.array(z.string().max(50)).max(30).optional(),
+})
+
 // ── Users ────────────────────────────────────────────────────────────────
 registry.registerPath({
   method: 'get', path: '/users/me', tags: ['users'], summary: "Get the current user's profile",
   security: BEARER, responses: { 200: { description: 'OK' } },
 })
 
+// ── Tags ─────────────────────────────────────────────────────────────────
+registry.registerPath({
+  method: 'get', path: '/tags', tags: ['tags'], summary: "List the caller's tags",
+  security: BEARER, responses: { 200: { description: 'OK' } },
+})
+
 // ── Notes ────────────────────────────────────────────────────────────────
 registry.registerPath({
   method: 'get', path: '/notes', tags: ['notes'], summary: "List the caller's notes",
-  security: BEARER, request: { query: z.object({ q: z.string().optional() }) },
+  security: BEARER,
+  request: { query: z.object({ q: z.string().optional(), tag: z.string().optional() }) },
   responses: { 200: { description: 'OK' } },
 })
 
@@ -54,7 +72,7 @@ registry.registerPath({
   security: BEARER,
   request: {
     params: z.object({ id: z.string() }),
-    body: { content: { 'application/json': { schema: noteSchema.partial() } } },
+    body: { content: { 'application/json': { schema: noteUpdateSchema } } },
   },
   responses: { 200: { description: 'OK' } },
 })

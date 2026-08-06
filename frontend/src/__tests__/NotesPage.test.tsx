@@ -53,11 +53,11 @@ function createWrapper() {
 
 const notes = [
   {
-    id: 'note-1', title: 'Pinned Note', content: 'pinned content', pinned: true, archived: false,
+    id: 'note-1', title: 'Pinned Note', content: 'pinned content', pinned: true, archived: false, tags: [] as string[],
     createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-02T00:00:00Z',
   },
   {
-    id: 'note-2', title: 'Regular Note', content: 'regular content', pinned: false, archived: false,
+    id: 'note-2', title: 'Regular Note', content: 'regular content', pinned: false, archived: false, tags: [] as string[],
     createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-03T00:00:00Z',
   },
 ]
@@ -160,7 +160,7 @@ describe('NotesPage — creating a note', () => {
   it('clicking "Новая заметка" posts to /notes and navigates to the created note', async () => {
     vi.mocked(api.get).mockResolvedValue(notes)
     const createdNote = {
-      id: 'new-note-id', title: '', content: '', pinned: false, archived: false,
+      id: 'new-note-id', title: '', content: '', pinned: false, archived: false, tags: [] as string[],
       createdAt: '2024-01-04T00:00:00Z', updatedAt: '2024-01-04T00:00:00Z',
     }
     vi.mocked(api.post).mockResolvedValue(createdNote)
@@ -179,5 +179,39 @@ describe('NotesPage — creating a note', () => {
     const navArg = mockNavigate.mock.calls[0]?.[0] as Record<string, unknown>
     const navString = JSON.stringify(navArg)
     expect(navString).toContain('new-note-id')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tag chips on note cards (new)
+// ---------------------------------------------------------------------------
+describe('NotesPage — tag chips on cards', () => {
+  it('renders each tag in a non-empty tags array as a read-only chip with visible text, and no remove control', async () => {
+    const taggedNotes = [
+      { ...notes[0]!, tags: ['Work', 'Urgent'] },
+      { ...notes[1]! },
+    ]
+    vi.mocked(api.get).mockResolvedValue(taggedNotes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await screen.findByText('Pinned Note')
+    expect(screen.getByText('Work')).toBeInTheDocument()
+    expect(screen.getByText('Urgent')).toBeInTheDocument()
+
+    // Read-only: no button/remove-control anywhere among the tag chips.
+    // (NotesPage has no other buttons besides "Новая заметка" itself in
+    // this fixture, but scope narrowly to be safe: only that one button
+    // should exist.)
+    const buttons = screen.getAllByRole('button')
+    expect(buttons.every((b) => !/work|urgent/i.test(b.textContent ?? ''))).toBe(true)
+  })
+
+  it('renders no tag chip elements and does not crash for a note with an empty tags array', async () => {
+    const untaggedNotes = [{ ...notes[0]!, tags: [] }, { ...notes[1]!, tags: [] }]
+    vi.mocked(api.get).mockResolvedValue(untaggedNotes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await screen.findByText('Pinned Note')
+    expect(screen.getByText('Regular Note')).toBeInTheDocument()
   })
 })

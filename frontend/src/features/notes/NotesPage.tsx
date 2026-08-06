@@ -141,6 +141,22 @@ function NoteCard({ note }: { note: Note }) {
       }}>
         {note.content || 'Пусто'}
       </div>
+      {note.tags.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+          {note.tags.map((tag) => (
+            <span
+              key={tag}
+              style={{
+                background: 'var(--accent-muted)', color: 'var(--accent-text)',
+                borderRadius: 6, padding: '0.1rem 0.375rem',
+                fontSize: '0.6875rem', fontWeight: 600,
+              }}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginTop: 'auto' }}>
         {formatRelative(note.updatedAt)}
       </div>

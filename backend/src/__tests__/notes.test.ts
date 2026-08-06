@@ -48,6 +48,7 @@ interface NoteApi {
   title: string
   content: string
   pinned: boolean
+  tags: string[]
   [key: string]: unknown
 }
 
@@ -307,6 +308,211 @@ describe('PUT /notes/:id', () => {
     const row = selectNote(note.id)
     expect(row?.title).toBe('Mine')
     expect(row?.content).toBe('Secret')
+  })
+})
+
+describe('GET /notes and GET /notes/:id — tags field', () => {
+  it('GET /notes/:id includes tags: [] for a note with no tags', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const res = await get(`/notes/${note.id}`, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual([])
+  })
+
+  it('GET /notes includes tags: [] for a note with no tags', async () => {
+    insertNote({ userId: 'user-1' })
+    const res = await get('/notes', H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi[]
+    expect(body).toHaveLength(1)
+    expect(body[0]?.tags).toEqual([])
+  })
+
+  it('GET /notes/:id reflects the note\'s current tags, alphabetically sorted', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note.id}`, { tags: ['Zebra', 'Apple'] }, H1)
+
+    const res = await get(`/notes/${note.id}`, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual(['Apple', 'Zebra'])
+  })
+
+  it('GET /notes reflects each note\'s current tags, alphabetically sorted', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note.id}`, { tags: ['Zebra', 'Apple'] }, H1)
+
+    const res = await get('/notes', H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi[]
+    const found = body.find((n) => n.id === note.id)
+    expect(found?.tags).toEqual(['Apple', 'Zebra'])
+  })
+})
+
+describe('PUT /notes/:id — tags', () => {
+  it('omitting the tags key entirely leaves existing tags unchanged', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note.id}`, { tags: ['Work'] }, H1)
+
+    const res = await put(`/notes/${note.id}`, { title: 'New title' }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual(['Work'])
+  })
+
+  it('tags: [] clears all tags from the note', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note.id}`, { tags: ['Work', 'Ideas'] }, H1)
+
+    const res = await put(`/notes/${note.id}`, { tags: [] }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual([])
+  })
+
+  it('tags: ["Work", "Ideas"] sets exactly those two tags, creating tag records as needed', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const res = await put(`/notes/${note.id}`, { tags: ['Work', 'Ideas'] }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual(['Ideas', 'Work'])
+  })
+
+  it('trims tag names and drops empty/whitespace-only entries', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const res = await put(`/notes/${note.id}`, { tags: ['  Work  ', '', '   ', 'Ideas'] }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual(['Ideas', 'Work'])
+  })
+
+  it('matches existing tags case-insensitively, reusing rather than duplicating', async () => {
+    const note1 = insertNote({ userId: 'user-1' })
+    const note2 = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note1.id}`, { tags: ['Work'] }, H1)
+    const res2 = await put(`/notes/${note2.id}`, { tags: ['work'] }, H1)
+    expect(res2.status).toBe(200)
+
+    const tagsRes = await get('/tags', H1)
+    const tagsBody = (await tagsRes.json()) as { name: string }[]
+    expect(tagsBody).toHaveLength(1)
+
+    const body2 = (await res2.json()) as NoteApi
+    expect(body2.tags).toHaveLength(1)
+    // Both notes should now report a single, consistent tag name.
+    const note1Res = await get(`/notes/${note1.id}`, H1)
+    const note1Body = (await note1Res.json()) as NoteApi
+    expect(note1Body.tags).toHaveLength(1)
+    expect(note1Body.tags[0]?.toLowerCase()).toBe('work')
+    expect(body2.tags[0]?.toLowerCase()).toBe('work')
+  })
+
+  it('collapses duplicate names within a single update (after trim/case-fold) to one tag', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const res = await put(`/notes/${note.id}`, { tags: ['work', 'Work', 'WORK'] }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toHaveLength(1)
+    expect(body.tags[0]?.toLowerCase()).toBe('work')
+  })
+
+  it('response tags field is sorted alphabetically', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const res = await put(`/notes/${note.id}`, { tags: ['Charlie', 'Alpha', 'Bravo'] }, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.tags).toEqual(['Alpha', 'Bravo', 'Charlie'])
+  })
+
+  it('scopes tags per user - two users each setting "Work" get independent tags', async () => {
+    const note1 = insertNote({ userId: 'user-1' })
+    const note2 = insertNote({ userId: 'user-2' })
+    await put(`/notes/${note1.id}`, { tags: ['Work'] }, H1)
+    await put(`/notes/${note2.id}`, { tags: ['Work'] }, H2)
+
+    const tags1 = (await (await get('/tags', H1)).json()) as { name: string }[]
+    const tags2 = (await (await get('/tags', H2)).json()) as { name: string }[]
+    expect(tags1.map((t) => t.name)).toEqual(['Work'])
+    expect(tags2.map((t) => t.name)).toEqual(['Work'])
+  })
+
+  it('rejects a tag name longer than 50 characters with 400', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const longTag = 'a'.repeat(51)
+    const res = await put(`/notes/${note.id}`, { tags: [longTag] }, H1)
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts a tag name exactly 50 characters long', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const tag = 'a'.repeat(50)
+    const res = await put(`/notes/${note.id}`, { tags: [tag] }, H1)
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects more than 30 tags in one request body with 400', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const tooMany = Array.from({ length: 31 }, (_, i) => `tag-${i}`)
+    const res = await put(`/notes/${note.id}`, { tags: tooMany }, H1)
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts exactly 30 tags in one request body', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    const thirty = Array.from({ length: 30 }, (_, i) => `tag-${i}`)
+    const res = await put(`/notes/${note.id}`, { tags: thirty }, H1)
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /notes?tag= filtering', () => {
+  it('filters the list to only notes carrying a tag with exactly that name', async () => {
+    const tagged = insertNote({ userId: 'user-1', title: 'Tagged' })
+    const untagged = insertNote({ userId: 'user-1', title: 'Untagged' })
+    await put(`/notes/${tagged.id}`, { tags: ['Work'] }, H1)
+
+    const res = await get('/notes?tag=Work', H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi[]
+    expect(body.map((n) => n.id)).toEqual([tagged.id])
+    expect(body.map((n) => n.id)).not.toContain(untagged.id)
+  })
+
+  it('returns [] for an unrecognized tag name', async () => {
+    insertNote({ userId: 'user-1', title: 'Untagged' })
+    const res = await get('/notes?tag=NoSuchTag', H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+
+  it('combines ?tag=X&q=searchterm as an AND filter', async () => {
+    const matchesBoth = insertNote({ userId: 'user-1', title: 'Groceries List', content: '' })
+    const matchesTagOnly = insertNote({ userId: 'user-1', title: 'Unrelated', content: '' })
+    const matchesQOnly = insertNote({ userId: 'user-1', title: 'Groceries Again', content: '' })
+    await put(`/notes/${matchesBoth.id}`, { tags: ['Work'] }, H1)
+    await put(`/notes/${matchesTagOnly.id}`, { tags: ['Work'] }, H1)
+    // matchesQOnly gets no tag at all.
+
+    const res = await get('/notes?tag=Work&q=groceries', H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi[]
+    const ids = body.map((n) => n.id)
+    expect(ids).toEqual([matchesBoth.id])
+    expect(ids).not.toContain(matchesTagOnly.id)
+    expect(ids).not.toContain(matchesQOnly.id)
+  })
+
+  it('excludes an archived note even if it carries the filtered tag', async () => {
+    const note = insertNote({ userId: 'user-1' })
+    await put(`/notes/${note.id}`, { tags: ['Work'] }, H1)
+    const delRes = await del(`/notes/${note.id}`, H1)
+    expect(delRes.status).toBeLessThan(300)
+
+    const res = await get('/notes?tag=Work', H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
   })
 })
 

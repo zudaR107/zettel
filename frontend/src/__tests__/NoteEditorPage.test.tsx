@@ -51,6 +51,7 @@ function createWrapper() {
 
 const note = {
   id: 'note-1', title: 'My Note Title', content: 'Some **markdown** content', pinned: false, archived: false,
+  tags: [] as string[],
   createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-02T00:00:00Z',
 }
 
@@ -75,14 +76,18 @@ function mockPutEchoingMergedNote() {
 // helper branches by the requested path/URL, defaulting the two list-shaped
 // endpoints to [] unless a test opts into richer data for them.
 // ---------------------------------------------------------------------------
-function mockApiGet(overrides: { note?: unknown; notes?: unknown[]; backlinks?: unknown[] } = {}) {
+function mockApiGet(
+  overrides: { note?: unknown; notes?: unknown[]; backlinks?: unknown[]; tags?: unknown[] } = {},
+) {
   const singleNote = overrides.note ?? note
   const notesList = overrides.notes ?? []
   const backlinksList = overrides.backlinks ?? []
+  const tagsList = overrides.tags ?? []
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path === '/notes/note-1') return Promise.resolve(singleNote)
     if (path === '/notes') return Promise.resolve(notesList)
     if (path === '/notes/note-1/backlinks') return Promise.resolve(backlinksList)
+    if (path === '/tags') return Promise.resolve(tagsList)
     return Promise.resolve([])
   })
 }
@@ -237,7 +242,7 @@ describe('NoteEditorPage — related data fetched on mount', () => {
 // ---------------------------------------------------------------------------
 describe('NoteEditorPage — wiki-link rendering', () => {
   const linkedNote = {
-    id: 'note-2', title: 'Other Note', content: '', pinned: false, archived: false,
+    id: 'note-2', title: 'Other Note', content: '', pinned: false, archived: false, tags: [] as string[],
     createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
   }
 
@@ -350,5 +355,117 @@ describe('NoteEditorPage — backlinks panel', () => {
     const links = screen.getAllByRole('link')
     expect(links).toHaveLength(1)
     expect(links[0]).toHaveTextContent(/заметки/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tags (new)
+//
+// These tests locate the rendered TagInput's own text input by elimination:
+// the page already has exactly two other textbox-role elements (the title
+// <input> and the content <textarea>), found the same way the rest of this
+// file already finds them (getByDisplayValue / getByPlaceholderText). Any
+// remaining textbox-role element must be TagInput's. This avoids depending
+// on any TagInput-internal markup detail.
+// ---------------------------------------------------------------------------
+describe('NoteEditorPage — tags', () => {
+  function findTagTextbox(): HTMLElement {
+    const allTextboxes = screen.getAllByRole('textbox')
+    const titleInput = screen.getByDisplayValue('My Note Title')
+    const contentField = screen.getByPlaceholderText(/пишите здесь/i)
+    const remaining = allTextboxes.filter((el) => el !== titleInput && el !== contentField)
+    if (remaining.length !== 1) {
+      throw new Error(`expected exactly one non-title/content textbox, found ${remaining.length}`)
+    }
+    return remaining[0]!
+  }
+
+  function findRemoveButtonFor(tagText: string): HTMLElement {
+    const chipText = screen.getByText(tagText)
+    let container: HTMLElement | null = chipText
+    while (container) {
+      const buttons = within(container).queryAllByRole('button')
+      if (buttons.length === 1) return buttons[0]!
+      container = container.parentElement
+    }
+    throw new Error(`no remove button found near chip "${tagText}"`)
+  }
+
+  it('fetches GET /tags on mount, in addition to the note/notes/backlinks fetches', async () => {
+    mockApiGet({ tags: [{ id: 't1', name: 'Work' }] })
+    render(<NoteEditorPage />, { wrapper: createWrapper() })
+
+    await screen.findByDisplayValue('My Note Title')
+    await vi.waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tags')
+    })
+  })
+
+  it("starts TagInput with the note's own current tags", async () => {
+    const taggedNote = { ...note, tags: ['Alpha', 'Beta'] }
+    mockApiGet({ note: taggedNote })
+    render(<NoteEditorPage />, { wrapper: createWrapper() })
+
+    await screen.findByDisplayValue('My Note Title')
+    expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.getByText('Beta')).toBeInTheDocument()
+  })
+
+  it('makes the fetched tag names available as TagInput suggestions', async () => {
+    mockApiGet({ tags: [{ id: 't1', name: 'Project X' }] })
+    const user = userEvent.setup()
+    render(<NoteEditorPage />, { wrapper: createWrapper() })
+
+    await screen.findByDisplayValue('My Note Title')
+    const tagInput = findTagTextbox()
+    await user.type(tagInput, 'project')
+
+    expect(await screen.findByText('Project X')).toBeInTheDocument()
+  })
+
+  it('removing a tag via TagInput calls api.put with the updated tags array immediately, without the ~800ms debounce delay used for title/content', async () => {
+    const taggedNote = { ...note, tags: ['Alpha', 'Beta'] }
+    mockApiGet({ note: taggedNote })
+    mockPutEchoingMergedNote()
+    const user = userEvent.setup()
+    render(<NoteEditorPage />, { wrapper: createWrapper() })
+
+    await screen.findByDisplayValue('My Note Title')
+    const removeButton = findRemoveButtonFor('Alpha')
+    await user.click(removeButton)
+
+    // A short wait suffices if the save is immediate/synchronous with the
+    // interaction - contrast with the title/content autosave tests above,
+    // which need up to a 2000ms waitFor timeout for the debounce to settle.
+    await vi.waitFor(
+      () => {
+        expect(api.put).toHaveBeenCalled()
+      },
+      { timeout: 150, interval: 10 },
+    )
+    const [path, body] = vi.mocked(api.put).mock.calls[0]!
+    expect(path).toBe('/notes/note-1')
+    expect((body as Record<string, unknown>).tags).toEqual(['Beta'])
+  })
+
+  it('adding a tag via TagInput calls api.put with the updated tags array immediately', async () => {
+    mockApiGet()
+    mockPutEchoingMergedNote()
+    const user = userEvent.setup()
+    render(<NoteEditorPage />, { wrapper: createWrapper() })
+
+    await screen.findByDisplayValue('My Note Title')
+    const tagInput = findTagTextbox()
+    await user.type(tagInput, 'Gamma{Enter}')
+
+    await vi.waitFor(
+      () => {
+        expect(api.put).toHaveBeenCalled()
+      },
+      { timeout: 150, interval: 10 },
+    )
+    const [path, body] = vi.mocked(api.put).mock.calls[0]!
+    expect(path).toBe('/notes/note-1')
+    expect((body as Record<string, unknown>).tags).toEqual(['Gamma'])
   })
 })
