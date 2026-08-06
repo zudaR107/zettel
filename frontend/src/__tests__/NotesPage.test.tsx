@@ -31,10 +31,16 @@ import { api } from '../lib/api'
 // following the same approach as this repo's AuthCallbackPage.test.tsx.
 // ---------------------------------------------------------------------------
 const mockNavigate = vi.fn()
+// useSearch is a vi.fn() (rather than a fixed `() => ({})`, as in the sibling
+// test files) so tests below can vary the current search params - see
+// QuickSwitcher.test.tsx's header comment for why: NotesPage now reads a
+// `tag` search param (per the new virtual-folders feature) via useSearch,
+// and we need to simulate both a `{ tag: 'work' }` and a `{}` search state.
+const mockUseSearch = vi.fn(() => ({}) as Record<string, unknown>)
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
   useParams: () => ({}),
-  useSearch: () => ({}),
+  useSearch: () => mockUseSearch(),
   useLocation: () => ({ pathname: '/notes' }),
   Link: (props: Record<string, unknown>) => {
     const { to, children } = props as { to: unknown; children?: React.ReactNode }
@@ -64,6 +70,8 @@ const notes = [
 
 beforeEach(() => {
   mockNavigate.mockClear()
+  mockUseSearch.mockReset()
+  mockUseSearch.mockReturnValue({})
   vi.mocked(api.get).mockReset()
   vi.mocked(api.post).mockReset()
   vi.mocked(api.put).mockReset()
@@ -213,5 +221,82 @@ describe('NotesPage — tag chips on cards', () => {
 
     await screen.findByText('Pinned Note')
     expect(screen.getByText('Regular Note')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tag-filter behavior (new "virtual folders" feature) - written from the
+// behavioral spec without reading NotesPage.tsx's implementation of how it
+// reads/applies the `tag` search param. useSearch is mocked per-test via
+// mockUseSearch (see the router mock above).
+// ---------------------------------------------------------------------------
+describe('NotesPage — tag filtering via the `tag` search param', () => {
+  it('when the URL search has tag: "work", fetches /notes with tag=work in the query', async () => {
+    mockUseSearch.mockReturnValue({ tag: 'work' })
+    vi.mocked(api.get).mockResolvedValue(notes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await vi.waitFor(() => {
+      const calledWithTag = vi.mocked(api.get).mock.calls.some((call) => {
+        const arg = call[0]
+        return typeof arg === 'string' && /tag=work\b/.test(decodeURIComponent(arg))
+      })
+      expect(calledWithTag).toBe(true)
+    })
+  })
+
+  it('when there is no tag in the search params, fetches /notes without any tag scoping', async () => {
+    mockUseSearch.mockReturnValue({})
+    vi.mocked(api.get).mockResolvedValue(notes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await screen.findByText('Pinned Note')
+    const everCalledWithTag = vi.mocked(api.get).mock.calls.some((call) => {
+      const arg = call[0]
+      return typeof arg === 'string' && /tag=/.test(arg)
+    })
+    expect(everCalledWithTag).toBe(false)
+  })
+
+  it('shows a visible indicator of the active tag name while a tag filter is active', async () => {
+    mockUseSearch.mockReturnValue({ tag: 'work' })
+    vi.mocked(api.get).mockResolvedValue(notes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await screen.findByText('Pinned Note')
+    // At least one element renders the active tag's name somewhere on the
+    // page (separate from any per-note tag chips, though we're deliberately
+    // tolerant of overlap - the spec only requires >=1 match).
+    const matches = screen.getAllByText(/work/i)
+    expect(matches.length).toBeGreaterThan(0)
+  })
+
+  it('provides a way to clear the active tag filter, navigating back to the unfiltered /notes view', async () => {
+    mockUseSearch.mockReturnValue({ tag: 'work' })
+    vi.mocked(api.get).mockResolvedValue(notes)
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    await screen.findByText('Pinned Note')
+
+    // Link is stubbed as a plain <a> whose href is either the literal `to`
+    // string or a JSON-stringified `to` object (see the router mock above).
+    // A "clear filter" control should be an anchor pointing somewhere that
+    // does NOT carry the active tag.
+    const anchors = Array.from(document.querySelectorAll('a'))
+    const clearCandidates = anchors.filter((a) => {
+      const href = a.getAttribute('href') ?? ''
+      return !/tag/i.test(href) || (/"tag":\s*null/.test(href) || /"tag":\s*""/.test(href))
+    })
+    expect(clearCandidates.length).toBeGreaterThan(0)
+  })
+
+  it('does not show the "first time ever" onboarding empty state when a tag filter has zero matching notes', async () => {
+    mockUseSearch.mockReturnValue({ tag: 'work' })
+    vi.mocked(api.get).mockResolvedValue([])
+    render(<NotesPage />, { wrapper: createWrapper() })
+
+    // Give the fetch a tick to resolve before asserting absence.
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalled())
+    expect(screen.queryByText(/Заметок пока нет/i)).not.toBeInTheDocument()
   })
 })

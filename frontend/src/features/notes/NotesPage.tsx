@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, Link } from '@tanstack/react-router'
-import { Plus, Pin, Search } from 'lucide-react'
+import { useNavigate, useSearch, Link } from '@tanstack/react-router'
+import { Plus, Pin, Search, Tag as TagIcon, X } from 'lucide-react'
 import { EmptyState, Button } from '@zudar107/schloss-ui'
 import { api } from '../../lib/api'
 import type { Note } from '../../lib/types'
@@ -22,12 +22,22 @@ function useDebounced<T>(value: T, delayMs: number): T {
 export function NotesPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  // Set by clicking a tag "folder" in the sidebar (see Layout.tsx) -
+  // strict: false since this same component also renders at plain
+  // /notes, with no search params at all.
+  const { tag } = useSearch({ strict: false }) as { tag?: string }
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounced(query, 300)
 
   const { data: notes = [], isLoading } = useQuery<Note[]>({
-    queryKey: ['notes', debouncedQuery],
-    queryFn: () => api.get(`/notes${debouncedQuery ? `?q=${encodeURIComponent(debouncedQuery)}` : ''}`),
+    queryKey: ['notes', debouncedQuery, tag ?? ''],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (debouncedQuery) params.set('q', debouncedQuery)
+      if (tag) params.set('tag', tag)
+      const qs = params.toString()
+      return api.get(`/notes${qs ? `?${qs}` : ''}`)
+    },
   })
 
   const createMutation = useMutation({
@@ -59,7 +69,7 @@ export function NotesPage() {
         </Button>
       </div>
 
-      {notes.length === 0 && !query ? (
+      {notes.length === 0 && !query && !tag ? (
         <EmptyState
           illustration={<HeroIllustration size={100} />}
           title="Заметок пока нет"
@@ -70,6 +80,26 @@ export function NotesPage() {
         />
       ) : (
         <>
+          {tag && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                background: 'var(--accent-muted)', color: 'var(--accent-text)',
+                borderRadius: 6, padding: '0.25rem 0.5rem 0.25rem 0.625rem',
+                fontSize: '0.8125rem', fontWeight: 600,
+              }}>
+                <TagIcon size={13} />
+                {tag}
+                <Link
+                  to="/notes"
+                  aria-label="Сбросить фильтр по тегу"
+                  style={{ display: 'flex', color: 'inherit', opacity: 0.7, marginLeft: 2 }}
+                >
+                  <X size={13} />
+                </Link>
+              </span>
+            </div>
+          )}
           <div style={{ position: 'relative', maxWidth: 320, marginBottom: '1.25rem' }}>
             <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
