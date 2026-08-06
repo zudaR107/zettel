@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from '@tanstack/react-router'
-import { Plus, NotebookText, Pin, Search } from 'lucide-react'
-import { EmptyState, ICON_SIZE, Button } from '@zudar107/schloss-ui'
+import { Plus, Pin, Search } from 'lucide-react'
+import { EmptyState, Button } from '@zudar107/schloss-ui'
 import { api } from '../../lib/api'
 import type { Note } from '../../lib/types'
+import { HeroIllustration } from '../../components/HeroIllustration'
 
 // Debounced so typing doesn't fire a request per keystroke - 300ms is
 // short enough to still feel live, long enough to skip intermediate
@@ -60,7 +61,7 @@ export function NotesPage() {
 
       {notes.length === 0 && !query ? (
         <EmptyState
-          icon={<NotebookText size={ICON_SIZE.illustrative} strokeWidth={2} />}
+          illustration={<HeroIllustration size={100} />}
           title="Заметок пока нет"
           description="Создайте первую заметку — писать можно сразу в markdown, с live-превью."
           actionLabel="Новая заметка"
