@@ -7,6 +7,7 @@ import { useToast } from '../hooks/useToast'
 import { buildSchluesselLogoutUrl, buildSchluesselAccountUrl } from '../lib/authRedirect'
 import { Footer } from './Footer'
 import { Header } from './Header'
+import { QuickSwitcher } from './QuickSwitcher'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'zettel-sidebar-width'
 
@@ -294,6 +295,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {toast.toast && (
         <Toast open variant={toast.toast.variant} message={toast.toast.message} onDismiss={toast.dismiss} />
       )}
+
+      <QuickSwitcher />
     </div>
   )
 }
