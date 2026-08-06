@@ -43,13 +43,16 @@ This repo is a pnpm workspace with two packages:
   clickable link to the matching note; a backlinks panel on each note lists
   every other note that links to it.
 - **Tags** — tag notes and filter the list by tag.
+- **Virtual folders** — every tag also appears in the sidebar as a
+  folder-style shortcut to the notes list pre-filtered to it; not a
+  separate concept from tags, just another way to reach the same filter.
 - **Quick switcher** — `Ctrl+K` / `Cmd+K` opens a command palette to jump
   straight to a note by title from anywhere in the app.
 
 ## Status
 
-Notes, live preview, wiki-links/backlinks, tags, and the `Ctrl+K` quick
-switcher are all done.
+Notes, live preview, wiki-links/backlinks, tags, virtual folders, and the
+`Ctrl+K` quick switcher are all done.
 
 ## Local development
 

@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { Link, useLocation } from '@tanstack/react-router'
-import { NotebookText, Settings, LogOut, X, FileCode2, HelpCircle } from 'lucide-react'
+import { Link, useLocation, useSearch } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { NotebookText, Settings, LogOut, X, FileCode2, HelpCircle, Tag as TagIcon } from 'lucide-react'
 import { Toast, ThemeToggle, useSidebarWidth } from '@zudar107/schloss-ui'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { buildSchluesselLogoutUrl, buildSchluesselAccountUrl } from '../lib/authRedirect'
+import { api } from '../lib/api'
+import type { Tag } from '../lib/types'
 import { Footer } from './Footer'
 import { Header } from './Header'
 import { QuickSwitcher } from './QuickSwitcher'
@@ -25,12 +28,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
   const toast = useToast()
   const { pathname } = useLocation()
+  // Which tag "folder" (see the sidebar section below) is currently open,
+  // if any - only ever set on /notes, strict: false since Layout wraps
+  // every page.
+  const { tag: activeTag } = useSearch({ strict: false }) as { tag?: string }
   const [mobileOpen, setMobileOpen] = useState(false)
   const { width: sidebarWidth, collapsed, dragging, toggleCollapsed, startDrag } = useSidebarWidth({
     storageKey: SIDEBAR_WIDTH_STORAGE_KEY,
   })
 
   const navItems = user?.role === 'admin' ? [...NAV_ITEMS, DOCS_NAV_ITEM] : NAV_ITEMS
+
+  // Every tag currently in use, shown as a "folder" per the platform's
+  // virtual-folder design (a folder IS a tag, not a separate entity) -
+  // fetched once here so it's available in the sidebar on every page,
+  // reusing the same ['tags'] cache key the note editor's TagInput
+  // already populates.
+  const { data: tags = [] } = useQuery<Tag[]>({
+    queryKey: ['tags'],
+    queryFn: () => api.get('/tags'),
+  })
 
   async function handleLogout() {
     try {
@@ -152,6 +169,49 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             )
           })}
+
+          {/* Tag "folders" - a folder IS a tag, not a separate entity, so
+              this is just another view of the same GET /tags list.
+              Collapsed rail has no room for a scrolling name list, so the
+              whole section only renders expanded. */}
+          {!collapsed && tags.length > 0 && (
+            <>
+              <div style={{
+                margin: '0.875rem 0.75rem 0.25rem', fontSize: '0.6875rem', fontWeight: 600,
+                color: 'var(--sidebar-text)', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>
+                Теги
+              </div>
+              {tags.map(({ id, name }) => {
+                const active = pathname.startsWith('/notes') && activeTag === name
+                return (
+                  <Link
+                    key={id}
+                    to="/notes"
+                    search={{ tag: name }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.625rem',
+                      padding: '0.4rem 0.75rem', borderRadius: 8, textDecoration: 'none',
+                      color: active ? 'var(--sidebar-text-active)' : 'var(--sidebar-text)',
+                      background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
+                      fontSize: '0.8125rem', fontWeight: active ? 600 : 400,
+                      whiteSpace: 'nowrap', overflow: 'hidden',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) e.currentTarget.style.background = 'transparent'
+                    }}
+                  >
+                    <TagIcon size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                  </Link>
+                )
+              })}
+            </>
+          )}
         </nav>
 
         {/* Bottom actions */}
@@ -272,6 +332,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             )
           })}
+
+          {tags.length > 0 && (
+            <>
+              <div style={{
+                margin: '0.875rem 0.75rem 0.25rem', fontSize: '0.6875rem', fontWeight: 600,
+                color: 'var(--sidebar-text)', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>
+                Теги
+              </div>
+              {tags.map(({ id, name }) => {
+                const active = pathname.startsWith('/notes') && activeTag === name
+                return (
+                  <Link
+                    key={id}
+                    to="/notes"
+                    search={{ tag: name }}
+                    onClick={() => setMobileOpen(false)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.625rem',
+                      padding: '0.4rem 0.75rem', borderRadius: 8, textDecoration: 'none',
+                      color: active ? 'white' : 'var(--sidebar-text)',
+                      background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
+                      fontSize: '0.8125rem', fontWeight: active ? 600 : 400,
+                    }}
+                  >
+                    <TagIcon size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
+                    {name}
+                  </Link>
+                )
+              })}
+            </>
+          )}
         </nav>
       </aside>
 
