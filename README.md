@@ -42,11 +42,12 @@ This repo is a pnpm workspace with two packages:
 - **`[[Wiki-links]]`** — `[[Note Title]]` in a note's content resolves to a
   clickable link to the matching note; a backlinks panel on each note lists
   every other note that links to it.
+- **Tags** — tag notes and filter the list by tag.
 
 ## Status
 
-Notes, live preview, and wiki-links/backlinks are done. Not built yet:
-tags, and a `Ctrl+K` quick switcher.
+Notes, live preview, wiki-links/backlinks, and tags are done. Not built
+yet: a `Ctrl+K` quick switcher.
 
 ## Local development
 

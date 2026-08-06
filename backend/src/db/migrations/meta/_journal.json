@@ -15,6 +15,13 @@
       "when": 1785762512697,
       "tag": "0001_amazing_silver_sable",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786002478320,
+      "tag": "0002_black_madame_web",
+      "breakpoints": true
     }
   ]
 }

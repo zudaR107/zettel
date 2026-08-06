@@ -7,7 +7,8 @@ import rehypeHighlight from 'rehype-highlight'
 import { Pin, Archive, Link2 } from 'lucide-react'
 import { SegmentedControl, Button } from '@zudar107/schloss-ui'
 import { api } from '../../lib/api'
-import type { Note, NoteBacklink } from '../../lib/types'
+import type { Note, NoteBacklink, Tag } from '../../lib/types'
+import { TagInput } from '../../components/TagInput'
 import 'highlight.js/styles/github.css'
 
 type ViewMode = 'edit' | 'preview' | 'split'
@@ -67,6 +68,11 @@ export function NoteEditorPage() {
     queryFn: () => api.get(`/notes/${id}/backlinks`),
   })
 
+  const { data: allTags = [] } = useQuery<Tag[]>({
+    queryKey: ['tags'],
+    queryFn: () => api.get('/tags'),
+  })
+
   // Only initializes local state from the server's data - once the user
   // starts typing, `note` (the query cache) stays put as the "last saved"
   // baseline (see the autosave effect below), so this never overwrites
@@ -116,6 +122,18 @@ export function NoteEditorPage() {
     },
   })
 
+  // Applied immediately on each add/remove, like pin - not folded into
+  // the debounced title/content autosave, since a tag change is its own
+  // discrete action rather than continuous typing.
+  const tagsMutation = useMutation({
+    mutationFn: (tags: string[]) => api.put<Note>(`/notes/${id}`, { tags }),
+    onSuccess: (updated) => {
+      qc.setQueryData(['note', id], updated)
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: ['tags'] })
+    },
+  })
+
   if (!note) return null
 
   const showEdit = mode === 'edit' || mode === 'split'
@@ -153,6 +171,14 @@ export function NoteEditorPage() {
           </Button>
           <SegmentedControl options={VIEW_OPTIONS} value={mode} onChange={setMode} />
         </div>
+      </div>
+
+      <div style={{ marginBottom: '1rem' }}>
+        <TagInput
+          tags={note.tags}
+          suggestions={allTags.map((t) => t.name)}
+          onChange={(tags) => tagsMutation.mutate(tags)}
+        />
       </div>
 
       <div style={{
