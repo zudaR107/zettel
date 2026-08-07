@@ -44,7 +44,10 @@ This repo is a pnpm workspace with two packages:
   and syntax-highlighted code fences.
 - **`[[Wiki-links]]`** — `[[Note Title]]` in a note's content resolves to a
   clickable link to the matching note; a backlinks panel on each note lists
-  every other note that links to it.
+  every other note that links to it. A save that introduces a distinct new
+  link to an active, same-owner note fires a `zettel.note.backlink_added.v1`
+  event, delivered to the platform's [`glocke`](https://github.com/zudaR107/glocke)
+  notification service through a transactional outbox.
 - **Tags** — tag notes and filter active or archived lists by an exact tag
   name.
 - **Virtual folders** — every tag attached to an active note also appears
@@ -102,6 +105,9 @@ exposes variables prefixed with `VITE_` to frontend code.
 | `ZETTEL_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
 | `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
 | `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
+| `GLOCKE_BASE_URL` | Glocke's internal API URL, for delivering notification events |
+| `ZETTEL_TO_GLOCKE_HMAC_KEY_ID` | Key ID Zettel signs outgoing Glocke requests with |
+| `ZETTEL_TO_GLOCKE_HMAC_SECRET` | Matching HMAC secret; must equal Glocke's `GLOCKE_SOURCE_SECRET_ZETTEL`. Left unset, backlink events still get recorded but queue up undelivered |
 
 For a direct Vite build, the corresponding build-time variables are
 `VITE_SCHLUSSEL_URL` and `VITE_SCHLOSS_URL`; their local defaults are

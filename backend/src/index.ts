@@ -13,6 +13,7 @@ import { tagsRouter } from './features/tags/router.js'
 import { exportsRouter } from './features/exports/router.js'
 import { requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
+import { startNotificationOutbox } from './notifications/outbox.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
@@ -47,8 +48,20 @@ app.route('/tags', tagsRouter)
 app.route('/exports', exportsRouter)
 
 const PORT = Number(process.env['PORT'] ?? 3003)
-serve({ fetch: app.fetch, port: PORT }, () => {
+const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[Zettel API] Running on http://localhost:${PORT}`)
 })
+
+const notificationOutboxRuntime = startNotificationOutbox()
+
+let shutdownStarted = false
+async function shutdown() {
+  if (shutdownStarted) return
+  shutdownStarted = true
+  server.close()
+  await notificationOutboxRuntime.stop()
+}
+process.once('SIGINT', () => { void shutdown() })
+process.once('SIGTERM', () => { void shutdown() })
 
 export { app }
