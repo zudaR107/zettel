@@ -54,9 +54,11 @@ This repo is a pnpm workspace with two packages:
 - **Quick switcher** — `Ctrl+K` (Windows/Linux) or `Cmd+K` (macOS) opens a
   command palette from anywhere in the app. It searches active-note titles,
   unlike list search, which searches title and content in the current view.
-- **Export** — download every note (including archived ones), with its tags,
-  as JSON via `GET /users/export`. Scoped to Zettel's own data only, not a
-  platform-wide export.
+- **Export** — download one SQLite snapshot containing every note (including
+  archived ones), attached tag names, and the complete per-user tag registry
+  including orphan tags. `GET /users/export` remains the direct, unversioned
+  notes-only top-level contract; `GET /exports/me` returns the complete strict
+  standardized service v1 envelope.
 - **Regional profile** — `GET /users/me` exposes Schlüssel's read-only
   `weekStart`, `dateFormat`, and IANA `timezone` JWT claims. Zettel does not
   store or edit them; unset or missing claims are returned as `null`.
@@ -110,6 +112,35 @@ claims from the verified Schlüssel token: `weekStart` is `monday`, `sunday`,
 or `null`; `dateFormat` is `dmy`, `mdy`, `ymd`, or `null`; and `timezone` is
 a valid IANA identifier or `null`. Missing claims are normalized to `null`.
 A malformed regional claim invalidates the token and returns `401`.
+
+`GET /exports/me` accepts either a normal Schlüssel access token or an export
+delegation with exact audience `hof-service:zettel`, `token_use: export`,
+`data:export` scope, and nonempty subject, job, and token IDs, verified through
+the configured JWKS and exact issuer, with a non-expired numeric `exp`.
+Delegations are export-only and are rejected by ordinary Zettel routes,
+including the retained `GET /users/export`. The standardized response has only
+`version`, `service`, `exportedAt`, and `data` at the top level; `data` contains
+active and archived notes plus every tag registered to that user. The legacy
+endpoint keeps exactly `exportedAt`, `scope: "zettel-account-only"`, and `notes`
+at the top level for existing direct-export consumers. Both responses disable
+caching and MIME sniffing because exports contain private account data.
+
+Both Zettel endpoints are synchronous direct JSON exports; neither creates a
+platform archive. Only Schlüssel's asynchronous `/export-jobs` API creates the
+all-services ZIP, using `/exports/me` through a fixed internal registry. Each
+service takes its own local snapshot when called, so files may have different
+timestamps; retries retain successful files and capture failed services later.
+When at least one service succeeds and at least one fails, Schlüssel publishes
+a partial ZIP whose `manifest.json` records statuses, attempts, timestamps,
+byte counts, SHA-256 checksums, file names, and sanitized failures.
+
+The ZIP download is owner-only and no-store. Its artifact expires after a short
+TTL (24 hours by default), and creation is bounded by per-user cooldown and
+retention caps, response-size limits, a global storage quota, and a free-space
+reserve. Exports contain sensitive note content. Zettel exports caller-owned
+notes and tags only; it excludes account credentials/tokens, runtime
+configuration and logs, internal worker or audit state, other users, and data
+owned by other services.
 
 `DELETE /notes/{id}` archives rather than permanently deletes a note.
 `POST /notes/{id}/restore` restores only an archived note owned by the caller;

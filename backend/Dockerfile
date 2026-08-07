@@ -61,9 +61,10 @@ COPY schloss-server-kit/package.json ./schloss-server-kit/
 RUN apk add --no-cache python3 make g++
 RUN pnpm install --prod --frozen-lockfile --filter backend --filter @zudar107/schloss-server-kit
 # schloss-server-kit is consumed as its built dist/ output (see the
-# builder stage) - the --prod install above only links the workspace
-# member, it doesn't rebuild it, so the already-built dist/ is copied
-# in directly. Its node_modules is ALSO copied from the builder - a
+# builder stage) - the --prod install above installs its export-auth runtime
+# dependencies (including jose/zod) but only links the workspace member; it
+# doesn't rebuild it, so the already-built dist/ is copied in directly. Its
+# node_modules is ALSO copied from the builder - a
 # --prod install strips devDependencies workspace-wide, and hono is
 # only a peerDependency (relying on the consumer, backend, to supply
 # it) - backend's own node_modules/hono doesn't help here, since

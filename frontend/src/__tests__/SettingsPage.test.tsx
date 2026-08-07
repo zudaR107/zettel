@@ -4,6 +4,40 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SettingsPage } from '../features/settings/SettingsPage'
 
+const sharedExportMocks = vi.hoisted(() => ({
+  downloadJson: vi.fn(),
+  directExportAction: vi.fn(),
+}))
+
+vi.mock('@zudar107/schloss-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@zudar107/schloss-ui')>()
+  return {
+    ...actual,
+    downloadJson: sharedExportMocks.downloadJson,
+    DirectExportAction: (props: {
+      title: string
+      description: string
+      actionLabel: string
+      loadingLabel: string
+      loading?: boolean
+      error?: string | null
+      onExport: () => void
+    }) => {
+      sharedExportMocks.directExportAction(props)
+      return (
+        <section>
+          <h2>{props.title}</h2>
+          <p>{props.description}</p>
+          <button type="button" disabled={props.loading} onClick={props.onExport}>
+            {props.loading ? props.loadingLabel : props.actionLabel}
+          </button>
+          {props.error && <p role="alert">{props.error}</p>}
+        </section>
+      )
+    },
+  }
+})
+
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
@@ -26,9 +60,13 @@ function createWrapper() {
 
 const profile = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
 const exportedData = {
+  version: '1',
+  service: 'zettel',
   exportedAt: '2026-08-06T12:00:00.000Z',
-  scope: 'zettel',
-  notes: [{ id: 'note-1', title: 'Download me', content: 'Body', archived: false, tags: [] }],
+  data: {
+    notes: [{ id: 'note-1', title: 'Download me', content: 'Body', archived: false, tags: [] }],
+    tags: [],
+  },
 }
 
 beforeEach(() => {
@@ -36,45 +74,32 @@ beforeEach(() => {
   vi.mocked(api.get).mockReset()
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path === '/users/me') return Promise.resolve(profile)
-    if (path === '/users/export') return Promise.resolve(exportedData)
+    if (path === '/exports/me') return Promise.resolve(exportedData)
     return Promise.reject(new Error(`Unexpected GET ${path}`))
   })
+  sharedExportMocks.downloadJson.mockReset()
+  sharedExportMocks.directExportAction.mockClear()
 })
 
 describe('SettingsPage — data export', () => {
-  it('downloads the complete export endpoint response as a JSON file', async () => {
+  it('uses the shared direct-export action and JSON download helper for GET /exports/me', async () => {
     const user = userEvent.setup()
-    const createObjectURL = vi.fn((_blob: Blob) => 'blob:zettel-export')
-    const revokeObjectURL = vi.fn()
-    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
-    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
-
-    let download = ''
-    let href = ''
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-      download = this.download
-      href = this.href
-    })
 
     render(<SettingsPage />, { wrapper: createWrapper() })
     await screen.findByText('Test User')
 
     await user.click(screen.getByRole('button', { name: /экспорт|скачать.*данн/i }))
 
-    await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/users/export'))
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    const blob = createObjectURL.mock.calls[0]![0]
-    expect(blob).toBeInstanceOf(Blob)
-    expect(blob.type).toBe('application/json')
-    const contents = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onerror = () => reject(reader.error)
-      reader.onload = () => resolve(String(reader.result))
-      reader.readAsText(blob)
-    })
-    expect(JSON.parse(contents)).toEqual(exportedData)
-    expect(href).toContain('blob:zettel-export')
-    expect(download).toMatch(/\.json$/i)
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:zettel-export')
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/exports/me'))
+    expect(sharedExportMocks.directExportAction).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringMatching(/данн|экспорт/i),
+      description: expect.stringMatching(/json|замет|тег/i),
+      actionLabel: expect.stringMatching(/экспорт|скачать/i),
+      onExport: expect.any(Function),
+    }))
+    expect(sharedExportMocks.downloadJson).toHaveBeenCalledWith(
+      exportedData,
+      expect.stringMatching(/^zettel-export-\d{4}-\d{2}-\d{2}\.json$/),
+    )
   })
 })
