@@ -190,6 +190,55 @@ describe('NotesPage — creating a note', () => {
   })
 })
 
+describe('NotesPage — archive tab and restore', () => {
+  const archivedNote = {
+    ...notes[1]!,
+    id: 'archived-note',
+    title: 'Archived Note',
+    archived: true,
+  }
+
+  function mockActiveAndArchivedLists() {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/notes?archived=true') return Promise.resolve([archivedNote])
+      if (path === '/notes' || path === '/notes?archived=false') return Promise.resolve(notes)
+      return Promise.reject(new Error(`Unexpected GET ${path}`))
+    })
+  }
+
+  it('offers separate active and archived views and fetches archived notes on demand', async () => {
+    mockActiveAndArchivedLists()
+    const user = userEvent.setup()
+    render(<NotesPage />, { wrapper: createWrapper() })
+    await screen.findByText('Pinned Note')
+
+    expect(screen.getByRole('button', { name: 'Активные' })).toBeInTheDocument()
+    const archivedTab = screen.getByRole('button', { name: 'Архивные' })
+    await user.click(archivedTab)
+
+    await screen.findByText('Archived Note')
+    expect(api.get).toHaveBeenCalledWith('/notes?archived=true')
+    expect(screen.queryByText('Pinned Note')).not.toBeInTheDocument()
+  })
+
+  it('restores an archived note through POST /notes/:id/restore', async () => {
+    mockActiveAndArchivedLists()
+    vi.mocked(api.post).mockResolvedValue({ ...archivedNote, archived: false })
+    const user = userEvent.setup()
+    render(<NotesPage />, { wrapper: createWrapper() })
+    await screen.findByText('Pinned Note')
+
+    await user.click(screen.getByRole('button', { name: 'Архивные' }))
+    await screen.findByText('Archived Note')
+    await user.click(screen.getByRole('button', { name: /восстановить/i }))
+
+    await vi.waitFor(() => expect(api.post).toHaveBeenCalled())
+    const [path, body] = vi.mocked(api.post).mock.calls[0]!
+    expect(path).toBe('/notes/archived-note/restore')
+    if (body !== undefined) expect(body).toEqual({})
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Tag chips on note cards (new)
 // ---------------------------------------------------------------------------

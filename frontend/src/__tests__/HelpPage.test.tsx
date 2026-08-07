@@ -34,4 +34,15 @@ describe('HelpPage', () => {
     expect(items).toHaveLength(3)
     items.forEach((item) => expect(item).toBeInTheDocument())
   })
+
+  it('documents tags as folders, the Ctrl/Cmd+K shortcut, and data export', () => {
+    render(<HelpPage />)
+    const guide = document.body.textContent ?? ''
+
+    expect(guide).toMatch(/тег/i)
+    expect(guide).toMatch(/папк/i)
+    expect(guide).toMatch(/Ctrl\s*\+\s*K/i)
+    expect(guide).toMatch(/(?:Cmd\s*\+\s*K|⌘\s*K)/i)
+    expect(guide).toMatch(/экспорт/i)
+  })
 })
