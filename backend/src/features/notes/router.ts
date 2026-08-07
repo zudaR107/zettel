@@ -3,8 +3,9 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { eq, and, or, ne, like, desc, inArray } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
+import { randomUUID } from 'node:crypto'
 import { db } from '../../db/index.js'
-import { notes, tags, noteTags, type Note } from '../../db/schema.js'
+import { notes, tags, noteTags, notificationOutbox, type Note } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
 
 const router = new Hono()
@@ -68,7 +69,17 @@ async function attachTags(noteRows: Note[]): Promise<(Note & { tags: string[] })
 // casings for a brand new name could in theory both pass this
 // in-app check, which the index would then reject on the second insert -
 // not worth guarding against for a single-user note app).
-async function syncNoteTags(userId: string, noteId: string, tagNames: string[]) {
+// Synchronous, tx-bound version - called from inside the PUT /:id
+// db.transaction() below alongside the note update and any backlink
+// event inserts, so all three either commit or roll back together
+// (better-sqlite3 transaction callbacks must be synchronous, no await
+// inside).
+function syncNoteTagsTx(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  noteId: string,
+  tagNames: string[],
+): void {
   const trimmed = tagNames.map((t) => t.trim()).filter(Boolean)
   const seen = new Set<string>()
   const names: string[] = []
@@ -77,7 +88,7 @@ async function syncNoteTags(userId: string, noteId: string, tagNames: string[]) 
     if (!seen.has(key)) { seen.add(key); names.push(name) }
   }
 
-  const existingTags = await db.select().from(tags).where(eq(tags.userId, userId))
+  const existingTags = tx.select().from(tags).where(eq(tags.userId, userId)).all()
   const byLowerName = new Map(existingTags.map((t) => [t.name.toLowerCase(), t]))
 
   const tagIds: string[] = []
@@ -85,14 +96,89 @@ async function syncNoteTags(userId: string, noteId: string, tagNames: string[]) 
     let tag = byLowerName.get(name.toLowerCase())
     if (!tag) {
       tag = { id: createId(), userId, name, createdAt: new Date() }
-      await db.insert(tags).values(tag)
+      tx.insert(tags).values(tag).run()
       byLowerName.set(name.toLowerCase(), tag)
     }
     tagIds.push(tag.id)
   }
 
-  await db.delete(noteTags).where(eq(noteTags.noteId, noteId))
-  if (tagIds.length > 0) await db.insert(noteTags).values(tagIds.map((tagId) => ({ noteId, tagId })))
+  tx.delete(noteTags).where(eq(noteTags.noteId, noteId)).run()
+  if (tagIds.length > 0) tx.insert(noteTags).values(tagIds.map((tagId) => ({ noteId, tagId }))).run()
+}
+
+// Titles referenced via `[[Title]]` in raw note content, lowercased and
+// deduplicated - empty brackets (`[[]]`) are excluded since they never
+// name a real target.
+function extractWikiLinkTitles(content: string): Set<string> {
+  const titles = new Set<string>()
+  for (const match of content.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    const title = (match[1] ?? '').trim()
+    if (title) titles.add(title.toLowerCase())
+  }
+  return titles
+}
+
+// Titles newly present in `newContent` but absent from `oldContent`,
+// resolved against this user's own active (non-archived, non-self)
+// notes - matches the frontend's `resolveWikiLinks` resolution rules
+// (case-insensitive title match, unresolved/self/cross-owner/archived
+// targets silently ignored). A link that was already there before this
+// save, or that never resolves to a real note, never queues an event.
+async function resolveIntroducedBacklinkTargets(
+  userId: string,
+  selfId: string,
+  oldContent: string,
+  newContent: string,
+): Promise<{ id: string; title: string }[]> {
+  const oldTitles = extractWikiLinkTitles(oldContent)
+  const newTitles = extractWikiLinkTitles(newContent)
+  const introduced = [...newTitles].filter((title) => !oldTitles.has(title))
+  if (introduced.length === 0) return []
+
+  const candidates = await db.select().from(notes).where(and(
+    eq(notes.userId, userId),
+    eq(notes.archived, false),
+    ne(notes.id, selfId),
+  ))
+  const byLowerTitle = new Map(
+    candidates.filter((note) => note.title).map((note) => [note.title.toLowerCase(), note]),
+  )
+
+  const resolved: { id: string; title: string }[] = []
+  for (const title of introduced) {
+    const note = byLowerTitle.get(title)
+    if (note) resolved.push({ id: note.id, title: note.title })
+  }
+  return resolved
+}
+
+// Inserted in the same db.transaction() as the note update/tag sync it
+// reports (see PUT /:id below) - if this insert fails, the whole
+// transaction (including the note change itself) rolls back with it,
+// matching the pattern established in kuvert's goal-completion events.
+function insertBacklinkEvent(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  sourceTitle: string,
+  targetTitle: string,
+): void {
+  const id = randomUUID()
+  const now = Date.now()
+  tx.insert(notificationOutbox).values({
+    id,
+    eventType: 'zettel.note.backlink_added.v1',
+    userId,
+    payload: JSON.stringify({ recipientId: userId, sourceTitle, targetTitle }),
+    correlationId: id,
+    state: 'pending',
+    createdAt: now,
+    attempts: 0,
+    nextAttemptAt: now,
+    leaseId: null,
+    leaseUntil: null,
+    deliveredAt: null,
+    lastError: null,
+  }).run()
 }
 
 router.get('/', zValidator('query', listQuerySchema), async (c) => {
@@ -167,9 +253,27 @@ router.put('/:id', zValidator('json', noteUpdateSchema), async (c) => {
   const existing = await db.select().from(notes).where(and(eq(notes.id, id), eq(notes.userId, user.id))).get()
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
-  const updatedAt = new Date()
-  await db.update(notes).set({ ...data, updatedAt }).where(eq(notes.id, id))
-  if (tagNames !== undefined) await syncNoteTags(user.id, id, tagNames)
+  // Only a title/content/pinned change counts as "editing the note" for
+  // updatedAt purposes (which drives sort order and "last edited"
+  // display) - a tags-only PUT still applies (see syncNoteTagsTx below),
+  // it just doesn't touch this note's own updatedAt column.
+  const hasDomainChange = Object.keys(data).length > 0
+  const updatedAt = hasDomainChange ? new Date() : existing.updatedAt
+  const newTitle = data.title ?? existing.title
+  const newContent = data.content ?? existing.content
+  const introducedTargets = await resolveIntroducedBacklinkTargets(user.id, id, existing.content, newContent)
+
+  try {
+    db.transaction((tx) => {
+      tx.update(notes).set({ ...data, updatedAt }).where(eq(notes.id, id)).run()
+      if (tagNames !== undefined) syncNoteTagsTx(tx, user.id, id, tagNames)
+      for (const target of introducedTargets) {
+        insertBacklinkEvent(tx, user.id, newTitle, target.title)
+      }
+    })
+  } catch {
+    return c.json({ error: 'Failed to update note' }, 500)
+  }
 
   const [withTags] = await attachTags([{ ...existing, ...data, updatedAt }])
   return c.json(withTags)

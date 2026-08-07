@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, uniqueIndex, index } from 'drizzle-orm/sqlite-core'
 
 // Every timestamp column here uses `mode: 'timestamp_ms'`, not the more
 // common `mode: 'timestamp'` - the latter stores epoch *seconds*
@@ -54,3 +54,33 @@ export const noteTags = sqliteTable('note_tags', {
 }, (table) => [
   primaryKey({ columns: [table.noteId, table.tagId] }),
 ])
+
+// ── Notification outbox ─────────────────────────────────────────────
+// Transactional-outbox row for the shared generic dispatcher
+// (@zudar107/schloss-server-kit's createNotificationOutboxRuntime,
+// wired up in notifications/outbox.ts). Inserted in the SAME
+// db.transaction() as the note update it reports (see
+// features/notes/router.ts) - never a separate write, so a failure to
+// record the event rolls back the note change with it rather than
+// silently losing the event. No dedupe-key column here (unlike
+// tafel's) - zettel's dedup is old-vs-new content diffing done in
+// application code before the insert, not a DB constraint.
+export const notificationOutbox = sqliteTable('notification_outbox', {
+  id: text('id').primaryKey(),
+  eventType: text('event_type').notNull(),
+  userId: text('user_id').notNull(),
+  payload: text('payload').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  state: text('state').notNull().default('pending'),
+  createdAt: integer('created_at').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at'),
+  leaseId: text('lease_id'),
+  leaseUntil: integer('lease_until'),
+  deliveredAt: integer('delivered_at'),
+  lastError: text('last_error'),
+}, (table) => [
+  index('notification_outbox_dispatch_idx').on(table.state, table.nextAttemptAt),
+])
+
+export type NotificationOutboxRow = typeof notificationOutbox.$inferSelect
