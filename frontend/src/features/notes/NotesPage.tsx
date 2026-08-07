@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
-import { Plus, Pin, Search, Tag as TagIcon, X } from 'lucide-react'
-import { EmptyState, Button } from '@zudar107/schloss-ui'
+import { Plus, Pin, RotateCcw, Search, Tag as TagIcon, X } from 'lucide-react'
+import { EmptyState, Button, SegmentedControl, formatDate, type DatePrefs } from '@zudar107/schloss-ui'
 import { api } from '../../lib/api'
 import type { Note } from '../../lib/types'
 import { HeroIllustration } from '../../components/HeroIllustration'
+import { useDatePrefs } from '../../hooks/useDatePrefs'
 
 // Debounced so typing doesn't fire a request per keystroke - 300ms is
 // short enough to still feel live, long enough to skip intermediate
@@ -27,12 +28,16 @@ export function NotesPage() {
   // /notes, with no search params at all.
   const { tag } = useSearch({ strict: false }) as { tag?: string }
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'active' | 'archived'>('active')
   const debouncedQuery = useDebounced(query, 300)
+  const datePrefs = useDatePrefs()
+  const archived = view === 'archived'
 
   const { data: notes = [], isLoading } = useQuery<Note[]>({
-    queryKey: ['notes', debouncedQuery, tag ?? ''],
+    queryKey: ['notes', view, debouncedQuery, tag ?? ''],
     queryFn: () => {
       const params = new URLSearchParams()
+      if (archived) params.set('archived', 'true')
       if (debouncedQuery) params.set('q', debouncedQuery)
       if (tag) params.set('tag', tag)
       const qs = params.toString()
@@ -45,6 +50,14 @@ export function NotesPage() {
     onSuccess: (note) => {
       qc.invalidateQueries({ queryKey: ['notes'] })
       void navigate({ to: '/notes/$id', params: { id: note.id } })
+    },
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => api.post<Note>(`/notes/${id}/restore`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: ['tags'] })
     },
   })
 
@@ -69,7 +82,24 @@ export function NotesPage() {
         </Button>
       </div>
 
-      {notes.length === 0 && !query && !tag ? (
+      <div style={{ marginBottom: '1rem' }}>
+        <SegmentedControl
+          options={[
+            { value: 'active', label: 'Активные' },
+            { value: 'archived', label: 'Архивные' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+      </div>
+
+      {restoreMutation.isError && (
+        <p role="alert" style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--danger)' }}>
+          Не удалось восстановить заметку. Попробуйте ещё раз.
+        </p>
+      )}
+
+      {notes.length === 0 && !query && !tag && !archived ? (
         <EmptyState
           illustration={<HeroIllustration size={100} />}
           title="Заметок пока нет"
@@ -77,6 +107,13 @@ export function NotesPage() {
           actionLabel="Новая заметка"
           actionIcon={<Plus size={16} />}
           onAction={() => createMutation.mutate()}
+        />
+      ) : notes.length === 0 && !query && !tag ? (
+        <EmptyState
+          title="Архив пуст"
+          description="Архивированные заметки появятся здесь, и их можно будет восстановить."
+          actionLabel="К активным заметкам"
+          onAction={() => setView('active')}
         />
       ) : (
         <>
@@ -127,17 +164,25 @@ export function NotesPage() {
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Ничего не найдено.</p>
           ) : (
             <>
-              {pinned.length > 0 && (
+              {!archived && pinned.length > 0 && (
                 <div style={{ marginBottom: '1.5rem' }}>
                   <SectionLabel icon={<Pin size={13} />} text="Закреплённые" />
-                  <NoteGrid notes={pinned} />
+                  <NoteGrid notes={pinned} datePrefs={datePrefs} />
                 </div>
               )}
-              {rest.length > 0 && (
+              {!archived && rest.length > 0 && (
                 <div>
                   {pinned.length > 0 && <SectionLabel text="Остальные" />}
-                  <NoteGrid notes={rest} />
+                  <NoteGrid notes={rest} datePrefs={datePrefs} />
                 </div>
+              )}
+              {archived && (
+                <NoteGrid
+                  notes={notes}
+                  datePrefs={datePrefs}
+                  onRestore={(id) => restoreMutation.mutate(id)}
+                  restoringId={restoreMutation.isPending ? restoreMutation.variables : undefined}
+                />
               )}
             </>
           )}
@@ -155,22 +200,45 @@ function SectionLabel({ icon, text }: { icon?: React.ReactNode; text: string }) 
   )
 }
 
-function NoteGrid({ notes }: { notes: Note[] }) {
+function NoteGrid({
+  notes,
+  datePrefs,
+  onRestore,
+  restoringId,
+}: {
+  notes: Note[]
+  datePrefs: DatePrefs
+  onRestore?: (id: string) => void
+  restoringId?: string
+}) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.875rem' }}>
-      {notes.map((note) => <NoteCard key={note.id} note={note} />)}
+      {notes.map((note) => (
+        <NoteCard
+          key={note.id}
+          note={note}
+          datePrefs={datePrefs}
+          onRestore={onRestore}
+          restoring={restoringId === note.id}
+        />
+      ))}
     </div>
   )
 }
 
-function NoteCard({ note }: { note: Note }) {
-  return (
-    <Link
-      to="/notes/$id"
-      params={{ id: note.id }}
-      className="card"
-      style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', textDecoration: 'none', cursor: 'pointer', minHeight: 120 }}
-    >
+function NoteCard({
+  note,
+  datePrefs,
+  onRestore,
+  restoring,
+}: {
+  note: Note
+  datePrefs: DatePrefs
+  onRestore?: (id: string) => void
+  restoring: boolean
+}) {
+  const contents = (
+    <>
       <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
         {note.pinned && <Pin size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -200,13 +268,36 @@ function NoteCard({ note }: { note: Note }) {
         </div>
       )}
       <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginTop: 'auto' }}>
-        {formatRelative(note.updatedAt)}
+        {formatRelative(note.updatedAt, datePrefs)}
       </div>
+      {onRestore && (
+        <Button
+          variant="secondary"
+          style={{ alignSelf: 'flex-start', fontSize: '0.75rem', padding: '0.3rem 0.625rem' }}
+          onClick={() => onRestore(note.id)}
+          disabled={restoring}
+        >
+          <RotateCcw size={14} /> {restoring ? 'Восстановление…' : 'Восстановить'}
+        </Button>
+      )}
+    </>
+  )
+
+  const style = {
+    padding: '1rem', display: 'flex', flexDirection: 'column' as const, gap: '0.5rem',
+    textDecoration: 'none', minHeight: 120,
+  }
+
+  if (onRestore) return <div className="card" style={style}>{contents}</div>
+
+  return (
+    <Link to="/notes/$id" params={{ id: note.id }} className="card" style={{ ...style, cursor: 'pointer' }}>
+      {contents}
     </Link>
   )
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, datePrefs: DatePrefs): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const minutes = Math.floor(diffMs / 60_000)
   if (minutes < 1) return 'только что'
@@ -215,5 +306,5 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours} ч назад`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days} дн назад`
-  return new Date(iso).toLocaleDateString('ru-RU')
+  return formatDate(iso, datePrefs)
 }

@@ -48,6 +48,7 @@ interface NoteApi {
   title: string
   content: string
   pinned: boolean
+  archived: boolean
   tags: string[]
   [key: string]: unknown
 }
@@ -188,6 +189,24 @@ describe('GET /notes', () => {
       unpinnedNew.id,
       unpinnedOld.id,
     ])
+  })
+})
+
+describe('GET /notes?archived=true', () => {
+  it('returns only the caller-owned archived notes, separately from the active list', async () => {
+    const active = insertNote({ userId: 'user-1', title: 'Still active' })
+    const archived = insertNote({ userId: 'user-1', title: 'Mine archived', archived: true })
+    insertNote({ userId: 'user-2', title: 'Someone else archived', archived: true })
+
+    const archivedRes = await get('/notes?archived=true', H1)
+    expect(archivedRes.status).toBe(200)
+    const archivedBody = (await archivedRes.json()) as NoteApi[]
+    expect(archivedBody.map((note) => note.id)).toEqual([archived.id])
+    expect(archivedBody[0]?.archived).toBe(true)
+
+    const activeRes = await get('/notes', H1)
+    const activeBody = (await activeRes.json()) as NoteApi[]
+    expect(activeBody.map((note) => note.id)).toEqual([active.id])
   })
 })
 
@@ -552,6 +571,38 @@ describe('DELETE /notes/:id', () => {
   })
 })
 
+describe('POST /notes/:id/restore', () => {
+  it('restores an archived note so it leaves the archive and reappears in the active list', async () => {
+    const note = insertNote({ userId: 'user-1', title: 'Bring me back', archived: true })
+
+    const res = await post(`/notes/${note.id}/restore`, {}, H1)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as NoteApi
+    expect(body.id).toBe(note.id)
+    expect(body.archived).toBe(false)
+    expect(selectNote(note.id)?.archived).toBe(0)
+
+    const archived = (await (await get('/notes?archived=true', H1)).json()) as NoteApi[]
+    const active = (await (await get('/notes', H1)).json()) as NoteApi[]
+    expect(archived.map((item) => item.id)).not.toContain(note.id)
+    expect(active.map((item) => item.id)).toContain(note.id)
+  })
+
+  it("returns 404 and does not restore another user's archived note", async () => {
+    const note = insertNote({ userId: 'user-1', archived: true })
+
+    const res = await post(`/notes/${note.id}/restore`, {}, H2)
+
+    expect(res.status).toBe(404)
+    expect(selectNote(note.id)?.archived).toBe(1)
+  })
+
+  it('returns 404 for a nonexistent note id', async () => {
+    const res = await post('/notes/totally-fake-id/restore', {}, H1)
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('GET /notes/:id/backlinks', () => {
   it('returns 404 for a nonexistent note id', async () => {
     const res = await get('/notes/totally-fake-id/backlinks', H1)
@@ -676,6 +727,7 @@ describe('authentication', () => {
       { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ pinned: true }) },
     ],
     ['DELETE', `/notes/${targetId}`, { method: 'DELETE' }],
+    ['POST', `/notes/${targetId}/restore`, { method: 'POST', headers: jsonHeaders, body: '{}' }],
     ['GET', `/notes/${targetId}/backlinks`, {}],
   ]
 

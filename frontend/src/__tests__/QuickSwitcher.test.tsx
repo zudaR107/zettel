@@ -68,12 +68,20 @@ beforeEach(() => {
   vi.mocked(api.get).mockResolvedValue(notes)
 })
 
-function ctrlK() {
-  fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+function ctrlK(target: Window | HTMLElement = window, overrides: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', {
+    key: 'k', ctrlKey: true, bubbles: true, cancelable: true, ...overrides,
+  })
+  fireEvent(target, event)
+  return event
 }
 
-function cmdK() {
-  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+function cmdK(target: Window | HTMLElement = window, overrides: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', {
+    key: 'k', metaKey: true, bubbles: true, cancelable: true, ...overrides,
+  })
+  fireEvent(target, event)
+  return event
 }
 
 async function openSwitcher() {
@@ -129,31 +137,81 @@ describe('QuickSwitcher — closed by default', () => {
 describe('QuickSwitcher — opening the shortcut', () => {
   it('opens on Ctrl+K, showing a search input', async () => {
     render(<QuickSwitcher />, { wrapper: createWrapper() })
-    const input = await openSwitcher()
+    const event = ctrlK()
+    const input = await screen.findByPlaceholderText(PLACEHOLDER)
     expect(input).toBeVisible()
+    expect(event.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(input).toHaveFocus())
   })
 
   it('also opens on Cmd+K (metaKey, for Mac)', async () => {
     render(<QuickSwitcher />, { wrapper: createWrapper() })
-    cmdK()
+    const event = cmdK()
     const input = await screen.findByPlaceholderText(PLACEHOLDER)
     expect(input).toBeVisible()
+    expect(event.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(input).toHaveFocus())
+  })
+
+  it.each([
+    ['Ctrl+K from a text field', 'input', ctrlK],
+    ['Cmd+K from a page button', 'button', cmdK],
+  ] as const)('%s cancels the browser shortcut and moves focus into quick search', async (_name, control, press) => {
+    render(
+      <>
+        {control === 'input' ? <input aria-label="Обычное поле страницы" /> : <button>Обычная кнопка страницы</button>}
+        <QuickSwitcher />
+      </>,
+      { wrapper: createWrapper() },
+    )
+    const pageControl = control === 'input'
+      ? screen.getByRole('textbox', { name: 'Обычное поле страницы' })
+      : screen.getByRole('button', { name: 'Обычная кнопка страницы' })
+    pageControl.focus()
+    expect(pageControl).toHaveFocus()
+
+    const event = press(pageControl)
+
+    expect(event.defaultPrevented).toBe(true)
+    const quickSearch = await screen.findByPlaceholderText(PLACEHOLDER)
+    await vi.waitFor(() => expect(quickSearch).toHaveFocus())
   })
 })
 
 // ---------------------------------------------------------------------------
-// 3. Ctrl+K toggles closed when already open
+// 3. Repeated shortcuts keep the switcher open and focused
 // ---------------------------------------------------------------------------
-describe('QuickSwitcher — toggling', () => {
-  it('pressing Ctrl+K again while open closes it', async () => {
+describe('QuickSwitcher — repeated shortcuts', () => {
+  it('pressing Ctrl+K while already open re-focuses quick search instead of toggling it closed', async () => {
+    render(
+      <>
+        <button>Обычная кнопка страницы</button>
+        <QuickSwitcher />
+      </>,
+      { wrapper: createWrapper() },
+    )
+    const input = await openSwitcher()
+    const pageButton = screen.getByRole('button', { name: 'Обычная кнопка страницы' })
+    pageButton.focus()
+
+    const event = ctrlK(pageButton)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(input).toBeVisible()
+    await vi.waitFor(() => expect(input).toHaveFocus())
+  })
+
+  it('ignores key-repeat toggling when Ctrl+K is held down', async () => {
     render(<QuickSwitcher />, { wrapper: createWrapper() })
-    await openSwitcher()
 
-    ctrlK()
+    const initial = ctrlK()
+    const repeated = ctrlK(window, { repeat: true })
 
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument()
-    })
+    expect(initial.defaultPrevented).toBe(true)
+    expect(repeated.defaultPrevented).toBe(true)
+    const input = await screen.findByPlaceholderText(PLACEHOLDER)
+    expect(input).toBeVisible()
+    await vi.waitFor(() => expect(input).toHaveFocus())
   })
 })
 

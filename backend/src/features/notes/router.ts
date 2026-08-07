@@ -34,6 +34,7 @@ const noteUpdateSchema = z.object({
 const listQuerySchema = z.object({
   q: z.string().optional(),
   tag: z.string().optional(),
+  archived: z.enum(['true', 'false']).optional(),
 })
 
 // Attaches each note's current tag names (sorted) - a single batched
@@ -96,9 +97,9 @@ async function syncNoteTags(userId: string, noteId: string, tagNames: string[]) 
 
 router.get('/', zValidator('query', listQuerySchema), async (c) => {
   const user = c.get('user')
-  const { q, tag } = c.req.valid('query')
+  const { q, tag, archived } = c.req.valid('query')
 
-  const conditions = [eq(notes.userId, user.id), eq(notes.archived, false)]
+  const conditions = [eq(notes.userId, user.id), eq(notes.archived, archived === 'true')]
   if (q) conditions.push(or(like(notes.title, `%${q}%`), like(notes.content, `%${q}%`))!)
 
   let noteRows: Note[]
@@ -184,6 +185,19 @@ router.delete('/:id', async (c) => {
 
   await db.update(notes).set({ archived: true }).where(eq(notes.id, id))
   return c.json({ ok: true })
+})
+
+router.post('/:id/restore', async (c) => {
+  const user = c.get('user')
+  const { id } = c.req.param()
+  const ownership = and(eq(notes.id, id), eq(notes.userId, user.id), eq(notes.archived, true))
+  const existing = await db.select().from(notes).where(ownership).get()
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const updatedAt = new Date()
+  await db.update(notes).set({ archived: false, updatedAt }).where(ownership)
+  const [withTags] = await attachTags([{ ...existing, archived: false, updatedAt }])
+  return c.json(withTags)
 })
 
 export { router as notesRouter }

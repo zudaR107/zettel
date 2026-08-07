@@ -40,19 +40,24 @@ export function QuickSwitcher() {
     void navigate({ to: '/notes/$id', params: { id: note.id } })
   }
 
-  // A single window-level listener handles both the open/close toggle and,
-  // once open, every navigation key - Escape/arrows/Enter are NOT scoped
-  // to the search input's own onKeyDown, since focus can land elsewhere
-  // inside the palette (e.g. a mouse click on a result moves focus to
-  // that button) and the shortcuts need to keep working regardless of
-  // which element inside currently has focus.
+  // Reserve the browser shortcut in a stable capture-phase listener. It
+  // must preventDefault during the key event itself (before Chrome opens
+  // browser search), and repeated presses only refocus the palette.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen((o) => !o)
-        return
+        setOpen(true)
+        inputRef.current?.focus()
       }
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [])
+
+  // Escape/arrows/Enter work regardless of which palette control has focus.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
       if (!open) return
       if (e.key === 'Escape') {
         e.preventDefault()

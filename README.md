@@ -36,23 +36,34 @@ This repo is a pnpm workspace with two packages:
 
 ## Features
 
-- **Notes** — a title and markdown content, pin/archive, full-text search.
+- **Notes** — a title and markdown content, pinning, soft archive/restore,
+  and substring search across titles and content (not an indexed full-text
+  engine). Active and archived notes are shown in separate views.
 - **Live preview** — edit/preview/split view, with GitHub-flavored markdown
   and syntax-highlighted code fences.
 - **`[[Wiki-links]]`** — `[[Note Title]]` in a note's content resolves to a
   clickable link to the matching note; a backlinks panel on each note lists
   every other note that links to it.
-- **Tags** — tag notes and filter the list by tag.
-- **Virtual folders** — every tag also appears in the sidebar as a
-  folder-style shortcut to the notes list pre-filtered to it; not a
-  separate concept from tags, just another way to reach the same filter.
-- **Quick switcher** — `Ctrl+K` / `Cmd+K` opens a command palette to jump
-  straight to a note by title from anywhere in the app.
+- **Tags** — tag notes and filter active or archived lists by an exact tag
+  name.
+- **Virtual folders** — every tag attached to an active note also appears
+  in the sidebar as a folder-style shortcut to the notes list pre-filtered
+  to it; not a separate concept from tags, just another way to reach the
+  same filter.
+- **Quick switcher** — `Ctrl+K` (Windows/Linux) or `Cmd+K` (macOS) opens a
+  command palette from anywhere in the app. It searches active-note titles,
+  unlike list search, which searches title and content in the current view.
+- **Export** — download every note (including archived ones), with its tags,
+  as JSON via `GET /users/export`. Scoped to Zettel's own data only, not a
+  platform-wide export.
+- **Regional profile** — `GET /users/me` exposes Schlüssel's read-only
+  `weekStart`, `dateFormat`, and IANA `timezone` JWT claims. Zettel does not
+  store or edit them; unset or missing claims are returned as `null`.
 
 ## Status
 
-Notes, live preview, wiki-links/backlinks, tags, virtual folders, and the
-`Ctrl+K` quick switcher are all done.
+Notes, archive/restore, live preview, wiki-links/backlinks, tags, virtual
+folders, `Ctrl+K` quick switching, and scoped JSON export are all done.
 
 ## Local development
 
@@ -61,7 +72,6 @@ git submodule update --init
 pnpm install
 pnpm --filter @zudar107/schloss-server-kit build
 pnpm --filter @zudar107/schloss-ui build
-cp .env.example .env
 pnpm dev:backend   # backend on http://localhost:3003
 pnpm dev:frontend  # frontend on http://localhost:5176
 ```
@@ -75,21 +85,40 @@ pnpm --filter frontend lint
 
 ### Environment variables
 
-See `.env.example`. The important ones:
+`.env.example` contains Docker Compose substitutions. Direct backend runs
+use the defaults shown below unless the variables are exported in the shell;
+the backend does not load `.env` itself. Vite does load `.env`, but only
+exposes variables prefixed with `VITE_` to frontend code.
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_PATH` | SQLite file path (backend) |
+| `DATABASE_PATH` | SQLite file path when running the backend directly |
 | `SCHLUSSEL_JWKS_URL` | Where the backend fetches Schlüssel's public key to verify tokens |
 | `JWT_ISSUER` | Must match Schlüssel's own issuer, or every token gets rejected |
-| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist (backend) |
-| `VITE_SCHLUSSEL_URL` | Where "sign in" redirects to (baked in at frontend build time) |
-| `VITE_SCHLOSS_URL` | Where the header's "На главную" link points to (baked in at frontend build time) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist when running the backend directly |
+| `ZETTEL_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
+| `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
+| `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
+
+For a direct Vite build, the corresponding build-time variables are
+`VITE_SCHLUSSEL_URL` and `VITE_SCHLOSS_URL`; their local defaults are
+`http://localhost:4001` and `http://localhost:3000`, respectively.
+
+Authenticated `GET /users/me` responses also carry the regional profile
+claims from the verified Schlüssel token: `weekStart` is `monday`, `sunday`,
+or `null`; `dateFormat` is `dmy`, `mdy`, `ymd`, or `null`; and `timezone` is
+a valid IANA identifier or `null`. Missing claims are normalized to `null`.
+A malformed regional claim invalidates the token and returns `401`.
+
+`DELETE /notes/{id}` archives rather than permanently deletes a note.
+`POST /notes/{id}/restore` restores only an archived note owned by the caller;
+it returns `404` for a missing id, another user's note, or an active note.
 
 ## Running with Docker
 
 ```sh
 docker network create schloss-net   # one-time, shared with the other repos
+cp .env.example .env
 docker compose up -d
 ```
 
