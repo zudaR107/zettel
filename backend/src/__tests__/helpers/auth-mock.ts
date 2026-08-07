@@ -58,6 +58,50 @@ export const requireAuth = createMiddleware(async (c, next) => {
   await next()
 })
 
+// Mirrors the export-only middleware supplied by schloss-server-kit. Normal
+// access tokens remain valid, while delegated tokens are accepted only by the
+// service whose audience/scope they name.
+type MockExportAuthEnv = {
+  Variables: {
+    exportPrincipal:
+      | { sub: string; kind: 'access' }
+      | { sub: string; kind: 'delegation'; jobId: string }
+  }
+}
+
+export const requireExportAuth = createMiddleware<MockExportAuthEnv>(async (c, next) => {
+  const auth = c.req.header('Authorization')
+  if (!auth?.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const token = auth.slice(7)
+  const user = token === 'zettel-export-delegation-token'
+    ? TOKENS['test-token']
+    : token === 'zettel-export-user2-delegation-token'
+      ? TOKENS['user2-token']
+      : TOKENS[token]
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  // Delegations contain only the subject/export claims, so only a normal
+  // access token can drive the profile-based local auto-provisioning hook.
+  if (TOKENS[token]) {
+    const existing = sqlite.prepare('SELECT id FROM users WHERE id = ?').get(user.id)
+    if (!existing) {
+      sqlite
+        .prepare('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)')
+        .run(user.id, user.email, user.name, Date.now())
+    }
+  }
+
+  c.set('exportPrincipal', TOKENS[token]
+    ? { sub: user.id, kind: 'access' }
+    : { sub: user.id, kind: 'delegation', jobId: 'export-job-1' })
+  await next()
+})
+
 export const requireAdmin = createMiddleware(async (c, next) => {
   const user = c.get('user') as MockUser | undefined
   if (!user || user.role !== 'admin') {

@@ -1,4 +1,4 @@
-import { createAuthMiddleware } from '@zudar107/schloss-server-kit'
+import { createAuthMiddleware, createExportAuthMiddleware } from '@zudar107/schloss-server-kit'
 import type { AuthUser } from '@zudar107/schloss-server-kit'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
@@ -25,4 +25,12 @@ export const { requireAuth, requireAdmin } = createAuthMiddleware({
       })
     }
   },
+})
+
+// Unlike ordinary routes, the standardized export endpoint accepts either a
+// normal access token or a delegation scoped exactly to Zettel exports.
+export const requireExportAuth = createExportAuthMiddleware({
+  jwksUrl: JWKS_URL,
+  issuer: ISSUER,
+  service: 'zettel',
 })

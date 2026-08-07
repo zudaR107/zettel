@@ -15,9 +15,31 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
   bearerFormat: 'JWT',
 })
 
+registry.registerComponent('securitySchemes', 'exportDelegationAuth', {
+  type: 'http',
+  scheme: 'bearer',
+  bearerFormat: 'JWT',
+  description: 'Schlüssel export delegation scoped to audience hof-service:zettel and data:export.',
+})
+
 const BEARER = [{ bearerAuth: [] }]
 
 const errorResponseSchema = z.object({ error: z.string() })
+
+const exportResponseHeaders = {
+  'Cache-Control': {
+    description: 'Prevents storage of this private response.',
+    schema: { type: 'string' as const, enum: ['no-store, private'] },
+  },
+  Pragma: {
+    description: 'Legacy cache prevention.',
+    schema: { type: 'string' as const, enum: ['no-cache'] },
+  },
+  'X-Content-Type-Options': {
+    description: 'Disables MIME type sniffing.',
+    schema: { type: 'string' as const, enum: ['nosniff'] },
+  },
+}
 
 const noteResponseSchema = z.object({
   id: z.string(),
@@ -77,35 +99,72 @@ registry.registerPath({
   },
 })
 
-// Zettel's own data only - see scope: 'zettel-account-only' in the response.
-// Not a platform-wide export (Schlüssel has its own separate /auth/export
-// for that). Includes archived notes, unlike the default notes listing.
+const exportNoteSchema = z.object({
+  id: noteResponseSchema.shape.id,
+  title: noteResponseSchema.shape.title,
+  content: noteResponseSchema.shape.content,
+  pinned: noteResponseSchema.shape.pinned,
+  archived: noteResponseSchema.shape.archived,
+  tags: noteResponseSchema.shape.tags,
+  createdAt: noteResponseSchema.shape.createdAt,
+  updatedAt: noteResponseSchema.shape.updatedAt,
+}).strict()
+
+const exportTagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string().meta({ format: 'date-time' }),
+}).strict()
+
+const exportDataSchema = z.object({
+  notes: z.array(exportNoteSchema),
+  tags: z.array(exportTagSchema),
+}).strict()
+
+// Retained direct-download contract. Its top-level shape stays exactly
+// unversioned; only the standardized export exposes the full tag registry.
 const exportResponseSchema = z.object({
-  exportedAt: z.string(),
+  exportedAt: z.string().meta({ format: 'date-time' }),
   scope: z.literal('zettel-account-only'),
-  notes: z.array(z.object({
-    id: noteResponseSchema.shape.id,
-    title: noteResponseSchema.shape.title,
-    content: noteResponseSchema.shape.content,
-    pinned: noteResponseSchema.shape.pinned,
-    archived: noteResponseSchema.shape.archived,
-    tags: noteResponseSchema.shape.tags,
-    createdAt: noteResponseSchema.shape.createdAt,
-    updatedAt: noteResponseSchema.shape.updatedAt,
-  })),
-})
+  notes: exportDataSchema.shape.notes,
+}).strict()
 
 registry.registerPath({
   method: 'get', path: '/users/export', tags: ['users'], summary: "Export the caller's notes and tags",
-  description: "Exports only the caller's Zettel data, not their Schlüssel account or data from other Hof apps. The notes array includes active and archived notes with their tags.",
+  description: "Retained synchronous direct-download endpoint with its exact legacy top-level shape. Exports only the caller's active and archived notes with attached tag names. It excludes account credentials/tokens, runtime and operational state, other users, and other Hof services.",
   security: BEARER,
   responses: {
     200: {
       description: 'OK',
+      headers: exportResponseHeaders,
       content: { 'application/json': { schema: exportResponseSchema } },
     },
     401: {
       description: 'Missing, invalid, expired, or malformed bearer token',
+      content: { 'application/json': { schema: errorResponseSchema } },
+    },
+  },
+})
+
+const standardizedExportResponseSchema = z.object({
+  version: z.literal('1'),
+  service: z.literal('zettel'),
+  exportedAt: z.string().meta({ format: 'date-time' }),
+  data: exportDataSchema,
+}).strict()
+
+registry.registerPath({
+  method: 'get', path: '/exports/me', tags: ['exports'], summary: "Export the caller's complete Zettel snapshot",
+  description: 'Synchronous direct Zettel JSON endpoint used by Settings and as an input to Schlüssel\'s separate asynchronous ZIP collector. Returns the strict version 1 envelope from one local SQLite snapshot. Accepts a normal access token or a JWKS-verified delegation with the exact issuer, token_use=export, single hof-service:zettel audience, data:export scope, nonempty subject/job/token IDs, and a non-expired numeric expiry. Delegations are rejected by ordinary routes and the subject always comes from the verified principal. This is not a cross-service point-in-time snapshot. Account credentials/tokens, runtime configuration, logs, internal operational state, other users, and other services are excluded.',
+  security: [{ bearerAuth: [] }, { exportDelegationAuth: [] }],
+  responses: {
+    200: {
+      description: 'One owner-scoped SQLite snapshot containing active and archived notes, attached tag names, and all registered tags including orphans',
+      headers: exportResponseHeaders,
+      content: { 'application/json': { schema: standardizedExportResponseSchema } },
+    },
+    401: {
+      description: 'Missing, invalid, expired, malformed, or incorrectly scoped bearer token',
       content: { 'application/json': { schema: errorResponseSchema } },
     },
   },

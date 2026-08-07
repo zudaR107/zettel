@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Download } from 'lucide-react'
-import { Button } from '@zudar107/schloss-ui'
+import { DirectExportAction, downloadJson } from '@zudar107/schloss-ui'
 import { api } from '../../lib/api'
 
 interface UserProfile {
@@ -22,14 +21,8 @@ export function SettingsPage() {
     setExporting(true)
     setExportError(false)
     try {
-      const data = await api.get('/users/export')
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `zettel-export-${new Date().toISOString().slice(0, 10)}.json`
-      anchor.click()
-      URL.revokeObjectURL(url)
+      const data = await api.get('/exports/me')
+      downloadJson(data, `zettel-export-${new Date().toISOString().slice(0, 10)}.json`)
     } catch {
       setExportError(true)
     } finally {
@@ -63,19 +56,16 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
-        <div className="label">Экспорт данных</div>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--text-muted)' }}>
-          Скачайте JSON со всеми заметками Zettel, включая архивные заметки и теги.
-        </p>
-        <Button variant="secondary" onClick={() => void downloadExport()} disabled={exporting}>
-          <Download size={15} /> {exporting ? 'Подготовка…' : 'Скачать экспорт'}
-        </Button>
-        {exportError && (
-          <p role="alert" style={{ margin: '0.75rem 0 0', fontSize: '0.8125rem', color: 'var(--danger)' }}>
-            Не удалось скачать данные. Попробуйте ещё раз.
-          </p>
-        )}
+      <div style={{ marginTop: '1rem' }}>
+        <DirectExportAction
+          title="Экспорт данных"
+          description="Скачайте JSON со всеми заметками Zettel, включая архивные заметки и полный реестр тегов."
+          actionLabel="Скачать экспорт"
+          loadingLabel="Подготовка…"
+          onExport={downloadExport}
+          loading={exporting}
+          error={exportError ? 'Не удалось скачать данные. Попробуйте ещё раз.' : null}
+        />
       </div>
     </div>
   )

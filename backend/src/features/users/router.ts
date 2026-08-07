@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
-import { eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { users, notes, tags, noteTags } from '../../db/schema.js'
+import { users } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
+import { exportDataForUser } from '../exports/router.js'
 
 const router = new Hono()
 router.use('*', requireAuth)
@@ -29,31 +30,15 @@ router.get('/me', async (c) => {
 // to be complete, not just "what the active notes list currently shows."
 router.get('/export', async (c) => {
   const user = c.get('user')
+  const { notes } = exportDataForUser(user.id)
 
-  const noteRows = await db.select().from(notes).where(eq(notes.userId, user.id))
-  const noteIds = noteRows.map((n) => n.id)
-  const tagRows = noteIds.length > 0
-    ? await db.select({ noteId: noteTags.noteId, name: tags.name })
-        .from(noteTags)
-        .innerJoin(tags, eq(tags.id, noteTags.tagId))
-        .where(inArray(noteTags.noteId, noteIds))
-    : []
-  const tagsByNote = new Map<string, string[]>()
-  for (const r of tagRows) tagsByNote.set(r.noteId, [...(tagsByNote.get(r.noteId) ?? []), r.name])
-
+  c.header('Cache-Control', 'no-store, private')
+  c.header('Pragma', 'no-cache')
+  c.header('X-Content-Type-Options', 'nosniff')
   return c.json({
     exportedAt: new Date().toISOString(),
     scope: 'zettel-account-only',
-    notes: noteRows.map((n) => ({
-      id: n.id,
-      title: n.title,
-      content: n.content,
-      pinned: n.pinned,
-      archived: n.archived,
-      tags: (tagsByNote.get(n.id) ?? []).sort(),
-      createdAt: n.createdAt,
-      updatedAt: n.updatedAt,
-    })),
+    notes,
   })
 })
 
